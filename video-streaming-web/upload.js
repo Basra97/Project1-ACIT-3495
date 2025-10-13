@@ -8,6 +8,8 @@ const els = {
   preview: document.getElementById('preview'),
   previewVideo: document.getElementById('preview-video'),
   cancel: document.getElementById('cancel'),
+  submitBtn: document.getElementById('submit-btn'),
+  uploadingIndicator: document.getElementById('uploading-indicator'),
   // auth + settings
   loginBtn: document.getElementById('login-btn'),
   logoutBtn: document.getElementById('logout-btn'),
@@ -109,6 +111,16 @@ els.form.addEventListener('submit', async (e) => {
   const title = els.title.value.trim();
   const description = els.description.value.trim();
 
+  // UI lock and indicator
+  const restoreUi = () => {
+    els.submitBtn && (els.submitBtn.disabled = false, els.submitBtn.textContent = 'Upload');
+    els.cancel && (els.cancel.disabled = false);
+    els.uploadingIndicator && els.uploadingIndicator.classList.add('hidden');
+  };
+  els.submitBtn && (els.submitBtn.disabled = true, els.submitBtn.textContent = 'Uploading…');
+  els.cancel && (els.cancel.disabled = true);
+  els.uploadingIndicator && els.uploadingIndicator.classList.remove('hidden');
+
   // If File and Catalog services are configured, try real backend flow.
   const canUseBackend = Boolean(CONFIG.FILE_BASE_URL) && Boolean(CONFIG.API_BASE_URL);
   if (canUseBackend) {
@@ -120,7 +132,12 @@ els.form.addEventListener('submit', async (e) => {
         method: 'POST',
         body: fd,
       });
-      if (!upRes.ok) throw new Error(`Upload failed: ${upRes.status}`);
+      if (!upRes.ok) {
+        const text = await safeReadText(upRes);
+        const err = new Error(`File upload failed (${upRes.status} ${upRes.statusText})${text ? `: ${text}` : ''}`);
+        err.code = upRes.status; // annotate
+        throw err;
+      }
       const upData = await upRes.json();
       const path = upData.path || (upData.filename ? `/files/${upData.filename}` : '');
       if (!path) throw new Error('No path returned from file service');
@@ -131,14 +148,22 @@ els.form.addEventListener('submit', async (e) => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ title: title || file.name, path }),
       });
-      if (!metaRes.ok) throw new Error(`Catalog save failed: ${metaRes.status}`);
+      if (!metaRes.ok) {
+        const text = await safeReadText(metaRes);
+        const err = new Error(`Catalog save failed (${metaRes.status} ${metaRes.statusText})${text ? `: ${text}` : ''}`);
+        err.code = metaRes.status;
+        throw err;
+      }
 
       sessionStorage.setItem('TOAST', JSON.stringify({ title: 'Upload complete', body: 'Saved file and catalog entry', kind: 'success' }));
+      restoreUi();
       window.location.href = './index.html';
       return;
     } catch (err) {
       console.error('Backend upload failed, falling back to local mock:', err);
-      showToast({ title: 'Backend unavailable', body: 'Saving locally only for now.', kind: 'error' });
+      const msg = (err && err.message) ? err.message : 'Unknown error';
+      showToast({ title: 'Upload error', body: msg, kind: 'error' });
+      showToast({ title: 'Fallback', body: 'Saving locally only for now.', kind: 'info' });
       // fall through to local mock save
     }
   }
@@ -159,6 +184,7 @@ els.form.addEventListener('submit', async (e) => {
   current.unshift(entry);
   localStorage.setItem(key, JSON.stringify(current));
   sessionStorage.setItem('TOAST', JSON.stringify({ title: 'Upload added', body: 'Mock upload saved locally', kind: 'success' }));
+  restoreUi();
   window.location.href = './index.html';
 });
 
@@ -217,4 +243,14 @@ els.settingsForm?.addEventListener('submit', (e) => {
 setAuthUI();
 
 // If redirected here in the future, could read session toast as well (not used on this page now)
+
+// helpers
+async function safeReadText(res) {
+  try {
+    const t = await res.text();
+    return (t || '').slice(0, 500);
+  } catch {
+    return '';
+  }
+}
 
