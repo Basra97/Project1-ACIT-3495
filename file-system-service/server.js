@@ -1,9 +1,11 @@
 const express = require('express');
+const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 
 const STORAGE_DIR = '/data/files';
