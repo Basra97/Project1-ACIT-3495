@@ -1,5 +1,6 @@
 const express = require('express');
 const mysql = require('mysql2');
+const fetch = require('node-fetch');
 const app = express();
 app.use(express.json());
 
@@ -25,9 +26,12 @@ app.post('/enter', async (req, res) => {
     const auth = await response.json();
     if (!auth.valid) return res.status(401).send('Invalid credentials');
 
-    // Insert data into MySQL
-    db.query('INSERT INTO entries (value) VALUES (?)', [data]);
-    res.send('Data inserted');
+    // Insert metadata into MySQL videos table (expect data with title and path)
+    if (data && data.title && data.path) {
+      db.query('INSERT INTO videos (title, path) VALUES (?, ?)', [data.title, data.path]);
+      return res.send('Video metadata inserted');
+    }
+    res.status(400).send('Missing data.title or data.path');
   } catch (err) {
     console.error(err);
     res.status(500).send('Service error');
