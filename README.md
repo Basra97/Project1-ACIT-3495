@@ -4,6 +4,7 @@ Small, containerized system with:
 - Authentication Service (Node/Express)
 - File System Service for uploads/serving files (Node/Express + multer)
 - MySQL with schema init
+- Catalog Service (Node/Express + mysql2) for listing/registering videos
 - Static front-end (Video Streaming Web) served by Nginx
 
 The Upload Web page and Streaming Web page are static (mock auth), but the front-end can talk to the services through configurable base URLs.
@@ -49,6 +50,7 @@ Services started:
 - MySQL on 3306 (with DB `data_db` and `videos` table from `mysql/init/init.sql`)
 - Auth Service on 4000
 - File System Service on 5000 (persists to `./storage`)
+- Catalog Service on 5001
 - Front-end (Nginx) on 8080 serving `video-streaming-web/`
 
 Check status:
@@ -63,8 +65,28 @@ Open the front-end: http://localhost:8080
 
 In the Settings modal set:
 - Auth Base URL: http://localhost:4000
-- API Base URL: (leave empty for now; we’ll add a catalog service later)
+- API Base URL: http://localhost:5001
 - File Base URL: http://localhost:5000
+
+Quick API checks:
+
+```bash
+# Auth
+curl -s -X POST http://localhost:4000/validate \
+	-H 'content-type: application/json' \
+	-d '{"username":"admin","password":"1234"}'
+
+# File upload
+echo "hello" > /tmp/test.txt
+curl -s -F file=@/tmp/test.txt http://localhost:5000/upload
+# -> { "path": "/files/<name>", "filename": "<name>" }
+
+# Catalog (list + create)
+curl -s http://localhost:5001/videos
+curl -s -X POST http://localhost:5001/videos \
+	-H 'content-type: application/json' \
+	-d '{"title":"Test Text","path":"/files/<name>"}'
+```
 
 
 
@@ -95,5 +117,4 @@ docker compose config  # validate
 
 ## Next steps
 
-- Add a Catalog Service (Node + mysql2) with `GET /videos` and `POST /videos` to read/write the `videos` table.
-- Wire Upload page to call Auth → File System → Catalog in sequence.
+- Wire Upload page to call Auth → File System → Catalog in sequence (so new uploads appear automatically on the list).
