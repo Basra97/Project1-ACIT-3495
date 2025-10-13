@@ -109,14 +109,47 @@ els.form.addEventListener('submit', async (e) => {
   const title = els.title.value.trim();
   const description = els.description.value.trim();
 
-  // NOTE: For the mock we won't persist the raw video; we store a blob URL placeholder
-  // Real flow will POST to File Service and DB. Here we record minimal metadata.
+  // If File and Catalog services are configured, try real backend flow.
+  const canUseBackend = Boolean(CONFIG.FILE_BASE_URL) && Boolean(CONFIG.API_BASE_URL);
+  if (canUseBackend) {
+    try {
+      // 1) Upload file to File System service
+      const fd = new FormData();
+      fd.append('file', file);
+      const upRes = await fetch(`${CONFIG.FILE_BASE_URL}/upload`, {
+        method: 'POST',
+        body: fd,
+      });
+      if (!upRes.ok) throw new Error(`Upload failed: ${upRes.status}`);
+      const upData = await upRes.json();
+      const path = upData.path || (upData.filename ? `/files/${upData.filename}` : '');
+      if (!path) throw new Error('No path returned from file service');
+
+      // 2) Record metadata in Catalog service
+      const metaRes = await fetch(`${CONFIG.API_BASE_URL}/videos`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: title || file.name, path }),
+      });
+      if (!metaRes.ok) throw new Error(`Catalog save failed: ${metaRes.status}`);
+
+      sessionStorage.setItem('TOAST', JSON.stringify({ title: 'Upload complete', body: 'Saved file and catalog entry', kind: 'success' }));
+      window.location.href = './index.html';
+      return;
+    } catch (err) {
+      console.error('Backend upload failed, falling back to local mock:', err);
+      showToast({ title: 'Backend unavailable', body: 'Saving locally only for now.', kind: 'error' });
+      // fall through to local mock save
+    }
+  }
+
+  // Fallback: local mock save so the UI remains usable without backend
   const id = 'local-' + Date.now();
   const entry = {
     id,
     title: title || file.name,
     description,
-    url: objectUrl, // ephemeral blob url; good enough to navigate back and preview within this tab session
+    url: objectUrl,
     thumb: '',
     duration: '',
     _local: true,
@@ -125,8 +158,6 @@ els.form.addEventListener('submit', async (e) => {
   const current = JSON.parse(localStorage.getItem(key) || '[]');
   current.unshift(entry);
   localStorage.setItem(key, JSON.stringify(current));
-
-  // Redirect back to list
   sessionStorage.setItem('TOAST', JSON.stringify({ title: 'Upload added', body: 'Mock upload saved locally', kind: 'success' }));
   window.location.href = './index.html';
 });
@@ -140,8 +171,31 @@ els.loginForm?.addEventListener('submit', (e) => {
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
   if (!username || !password) return;
-  loginMock(username);
-  closeLogin();
+  // If Auth service configured, validate for real; else use mock
+  if (CONFIG.AUTH_BASE_URL) {
+    fetch(`${CONFIG.AUTH_BASE_URL}/validate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data && data.valid) {
+          const user = { username, token: 'auth-ok' };
+          state.user = user;
+          localStorage.setItem('user', JSON.stringify(user));
+          setAuthUI();
+          closeLogin();
+          showToast({ title: 'Logged in', body: `Hello, ${username}`, kind: 'success' });
+        } else {
+          showToast({ title: 'Login failed', body: 'Invalid credentials', kind: 'error' });
+        }
+      })
+      .catch(() => showToast({ title: 'Login error', body: 'Auth service not reachable', kind: 'error' }));
+  } else {
+    loginMock(username);
+    closeLogin();
+  }
 });
 
 // settings events
