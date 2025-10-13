@@ -1,32 +1,34 @@
 # Project1 – Video Streaming System
 
-Small, containerized system with:
+Containerized microservices + static front-end:
 - Authentication Service (Node/Express)
-- File System Service for uploads/serving files (Node/Express + multer)
+- File System Service for uploads and serving files (Node/Express + Multer)
 - MySQL with schema init
 - Catalog Service (Node/Express + mysql2) for listing/registering videos
-- Static front-end (Video Streaming Web) served by Nginx
+- Static front-end (Nginx) serving `video-streaming-web/`
 
-The Upload Web page and Streaming Web page are static (mock auth), but the front-end can talk to the services through configurable base URLs.
+The front-end pages can operate in two modes:
+- Mock-only (no backend): uploads stored in browser localStorage
+- Backend-connected: Upload page calls File System → Catalog; Streaming page lists from Catalog
+
+---
 
 ## 1) Clone the repo
 
-Windows PowerShell or Linux/macOS shell:
-If you are working inside a Debian VM (VirtualBox), clone inside the VM
+Windows PowerShell or Debian shell. If you run Docker inside a Debian VM, clone inside that VM.
+
 ```bash
 git clone --branch testing --single-branch https://github.com/Basra97/Project1-ACIT-3495.git
 cd Project1-ACIT-3495
-# Switch to the testing branch
 git checkout testing
 ```
 
-
 ## 2) Prerequisites
 
-- Docker Engine and Docker Compose plugin installed and running
-- Ports available: 3306 (MySQL), 4000 (Auth), 5000 (File service), 8080 (Front-end)
+- Docker Engine and Docker Compose plugin
+- Ports free: 3306 (MySQL), 4000 (Auth), 5000 (File), 5001 (Catalog), 8080 (Front-end)
 
-Debian quick install (if needed):
+Debian quick install (optional):
 
 ```bash
 sudo apt-get update && sudo apt-get install -y ca-certificates curl gnupg
@@ -46,29 +48,40 @@ mkdir -p storage
 docker compose up -d --build
 ```
 
-Services started:
-- MySQL on 3306 (with DB `data_db` and `videos` table from `mysql/init/init.sql`)
-- Auth Service on 4000
-- File System Service on 5000 (persists to `./storage`)
-- Catalog Service on 5001
-- Front-end (Nginx) on 8080 serving `video-streaming-web/`
+Services:
+- mysql: 3306 (DB `data_db`, table `videos`) – schema from `mysql/init/init.sql`
+- auth-service: 4000 – `/validate`
+- file-system-service: 5000 – `/upload`, `/files/*` static, `DELETE /files/:name`
+- catalog-service: 5001 – `GET/POST /videos`, `DELETE /videos/:id`
+- video-web: 8080 – serves `video-streaming-web/`
 
 Check status:
 
 ```bash
-docker ps
+docker compose ps
 ```
 
-## 4) Try it
+## 4) Use it
 
 Open the front-end: http://localhost:8080
 
-In the Settings modal set:
-- Auth Base URL: http://localhost:4000
+Settings modal values:
+- Auth Base URL: http://localhost:4000 (optional; mock auth works without it)
 - API Base URL: http://localhost:5001
 - File Base URL: http://localhost:5000
 
-Quick API checks:
+Upload page flow (backend-connected):
+1) POST /upload to File System → returns `{ path: "/files/<name>" }`
+2) POST /videos to Catalog with `{ title, path }`
+3) On success: toast “Upload complete” and redirect to Streaming page
+4) On failure: toast shows exact error and falls back to local mock save
+
+Streaming page:
+- Lists items from Catalog when API Base URL is set
+- Local-only items still show when API is not set; they have Delete for local removal
+- Delete on API-backed items removes from Catalog (and attempts to delete the stored file)
+
+Quick API checks (curl):
 
 ```bash
 # Auth
@@ -76,45 +89,88 @@ curl -s -X POST http://localhost:4000/validate \
 	-H 'content-type: application/json' \
 	-d '{"username":"admin","password":"1234"}'
 
-# File upload
+# File upload (Linux/Debian example)
 echo "hello" > /tmp/test.txt
 curl -s -F file=@/tmp/test.txt http://localhost:5000/upload
-# -> { "path": "/files/<name>", "filename": "<name>" }
 
-# Catalog (list + create)
+# Catalog list + create
 curl -s http://localhost:5001/videos
 curl -s -X POST http://localhost:5001/videos \
 	-H 'content-type: application/json' \
 	-d '{"title":"Test Text","path":"/files/<name>"}'
 ```
 
+Windows PowerShell equivalents:
 
+```powershell
+# List
+irm http://localhost:5001/videos | ConvertTo-Json -Depth 3
+# Upload a file (adjust path) and then create a catalog entry
+$res = Invoke-RestMethod -Uri http://localhost:5000/upload -Method Post -Form @{ file = Get-Item '.\sample.mp4' }
+Invoke-RestMethod -Uri http://localhost:5001/videos -Method Post -ContentType 'application/json' -Body (@{ title = 'Sample'; path = $res.path } | ConvertTo-Json)
+irm http://localhost:5001/videos | ConvertTo-Json -Depth 3
+```
 
 ## 5) Stop/cleanup
 
 ```bash
 docker compose down
-# Or remove volumes too
+# Remove volumes too (DB reset)
 docker compose down -v
 ```
 
+---
+
+## What’s implemented vs requirements
+
+Based on the requirements and flow chart (Auth → File System → Catalog → Streaming UI):
+
+Implemented
+- Front-end: Streaming page (search, player, settings), Upload page with “Uploading…” indicator and detailed error toasts
+- Authentication Service: `/validate` (CORS enabled)
+- File System Service: `/upload`, static `/files/*`, `DELETE /files/:name` (CORS enabled). Filenames sanitized and storage directory ensured.
+- Catalog Service: `GET /videos`, `POST /videos`, `DELETE /videos/:id` (CORS enabled)
+- MySQL: auto-initialized schema `videos(id, title, path, uploaded_at)`
+- Docker Compose stack and Nginx static hosting
+
+Partially implemented
+- Front-end list uses Catalog when configured; mock + local fallback otherwise
+- Deletion from UI removes Catalog row and attempts file deletion (best-effort). If file is missing, the UI still removes the row and shows a cleanup note.
+
+Not implemented yet
+- Real login/session management (front-end uses mock unless Auth Base URL is provided; services don’t enforce auth tokens)
+- Video thumbnails or transcoding pipeline
+- File size/type validation and error localization
+- Deduplication between local-only entries and Catalog items once they appear in the DB
+
+
+---
+
 ## Troubleshooting
 
-- YAML tabs: YAML does not allow tab indentation. This repo’s `docker-compose.yml` uses spaces. If you copy/paste and see a parse error like “found character that cannot start any token”, convert tabs to spaces:
+- ENOENT errors on file-service during upload
+	- Ensure the host directory exists and is writable: `mkdir -p storage` and ensure Docker mount maps `./storage:/data/files`
+	- Rebuild and restart only that service: `docker compose build file-system-service && docker compose up -d file-system-service`
+- See container logs
+	- `docker compose ps`
+	- `docker compose logs -n 200 file-system-service`
+	- `docker compose logs -n 200 catalog-service`
+- CORS
+	- All services have CORS enabled; if you added gateways/proxies, ensure they allow DELETE/POST headers
+- Port conflicts
+	- Adjust host ports in `docker-compose.yml` (e.g., change 8080:80)
 
-```bash
-sed -i $'s/\t/  /g' docker-compose.yml && sed -i 's/\r$//' docker-compose.yml
-docker compose config  # validate
-```
+---
 
-- Port conflicts: change host ports in `docker-compose.yml` (e.g., 8080:80 to 8081:80) if already in use.
+## Handover checklist (for next developer)
 
-## Front-end notes
+1) Pull latest and start: `mkdir -p storage && docker compose up -d --build`
+2) Open http://localhost:8080 and set Settings as above
+3) Upload a small file to validate end-to-end; check `http://localhost:5001/videos`
+4) Delete a video from the UI; verify it disappears from the list; optional: check file removal under `storage/`
+5) If any step fails, check service logs with `docker compose logs -n 200 <service>`
 
-- `video-streaming-web/index.html` – streaming page (login/settings modals, search, player)
-- `video-streaming-web/upload.html` – mock upload UI
-- To configure endpoints from the UI, use the Settings modal (values are saved in localStorage).
-
-## Next steps
-
-- Wire Upload page to call Auth → File System → Catalog in sequence (so new uploads appear automatically on the list).
+Suggested next tasks
+- Enforce auth (JWT/session) on all endpoints; pass token from front-end
+- Add thumbnails and/or streaming-optimized formats
+- Improve error surfaces and add loading states to the Streaming page
