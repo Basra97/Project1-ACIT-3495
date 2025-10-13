@@ -1,40 +1,39 @@
 version: '3.8'
 services:
-	mysql:
-		image: mysql:8.0
-		environment:
-			MYSQL_ROOT_PASSWORD: example
-			MYSQL_DATABASE: data_db
-		volumes:
-			- mysql-data:/var/lib/mysql
-			- ./mysql/init:/docker-entrypoint-initdb.d:ro
-		ports:
-			- '3306:3306'
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: example
+      MYSQL_DATABASE: data_db
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - '3306:3306'
 
-	auth-service:
-		build: ./authentication-service
-		ports:
-			- '4000:4000'
-		depends_on:
-			- mysql
+  auth-service:
+    build: ./authentication-service
+    ports:
+      - '4000:4000'
+    depends_on:
+      - mysql
 
-	enter-web-data:
-		build: ./enter-web-data
-		ports:
-			- '3000:3000'
-		depends_on:
-			- auth-service
-			- mysql
+  file-system-service:
+    build: ./file-system-service
+    ports:
+      - '5000:5000'
+    volumes:
+      - ./storage:/data/files
+    depends_on:
+      - mysql
 
-	file-system-service:
-		build: ./file-system-service
-		ports:
-			- '5000:5000'
-		volumes:
-			- ./storage:/data/files
-		depends_on:
-			- mysql
+  video-web:
+    image: nginx:alpine
+    ports:
+      - '8080:80'
+    volumes:
+      - ./video-streaming-web:/usr/share/nginx/html:ro
 
 volumes:
-	mysql-data:
+  mysql-data:
 
