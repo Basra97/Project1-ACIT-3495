@@ -50,6 +50,20 @@ app.post('/upload', upload.single('file'), (req, res) => {
 // Serve files statically
 app.use('/files', express.static(STORAGE_DIR, { fallthrough: true }));
 
+// Delete a stored file
+app.delete('/files/:name', async (req, res) => {
+  try {
+    const name = req.params.name;
+    const full = path.join(STORAGE_DIR, name);
+    if (!fs.existsSync(full)) return res.status(404).send('Not found');
+    await fs.promises.unlink(full);
+    return res.status(204).send();
+  } catch (err) {
+    console.error(err);
+    return res.status(500).send('Error deleting file');
+  }
+});
+
 // Basic error handler (including multer errors)
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {

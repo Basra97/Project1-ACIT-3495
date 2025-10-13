@@ -130,20 +130,25 @@ function renderList(items) {
 
     const card = document.createElement('article');
     card.className = 'card video-card';
-    // Delete button for locally uploaded videos only
-    if (v._local || String(v.id || '').startsWith('local-')) {
-      const del = document.createElement('button');
-      del.className = 'delete-btn';
-      del.type = 'button';
-      del.textContent = 'Delete';
-      del.title = 'Remove local video';
-      del.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+    // Delete button for both local and API items
+    const isLocal = v._local || String(v.id || '').startsWith('local-');
+    const del = document.createElement('button');
+    del.className = 'delete-btn';
+    del.type = 'button';
+    del.textContent = 'Delete';
+    del.title = isLocal ? 'Remove local video' : 'Remove from Catalog and Storage';
+    del.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const ok = confirm('Delete this video?');
+      if (!ok) return;
+      if (isLocal) {
         deleteLocalVideo(v.id);
-      });
-      card.appendChild(del);
-    }
+      } else {
+        deleteApiVideo(v);
+      }
+    });
+    card.appendChild(del);
     const img = document.createElement('img');
     img.className = 'thumb';
     img.alt = v.title;
@@ -203,6 +208,61 @@ function closePlayer() {
   els.playerModal.classList.add('hidden');
 }
 
+async function deleteApiVideo(video) {
+  try {
+    if (!CONFIG.API_BASE_URL) {
+      showToast({ title: 'API not configured', body: 'Set API Base URL in Settings', kind: 'error' });
+      return;
+    }
+    // Try to delete the stored file first (best effort)
+    let fileIssue = '';
+    try {
+      if (CONFIG.FILE_BASE_URL && (video.path || video.url)) {
+        let fileEndpoint = '';
+        if (video.path) {
+          fileEndpoint = `${CONFIG.FILE_BASE_URL}${video.path}`;
+        } else if (video.url && video.url.startsWith(CONFIG.FILE_BASE_URL)) {
+          fileEndpoint = video.url;
+        }
+        if (fileEndpoint) {
+          const fr = await fetch(fileEndpoint, { method: 'DELETE' });
+          if (![200, 204, 404].includes(fr.status)) {
+            const t = await safeReadText(fr);
+            fileIssue = `File delete: ${fr.status} ${fr.statusText}${t ? ` - ${t}` : ''}`;
+          }
+        }
+      }
+    } catch (e) {
+      fileIssue = e?.message || 'File delete error';
+    }
+
+    const res = await fetch(`${CONFIG.API_BASE_URL}/videos/${encodeURIComponent(video.id)}`, {
+      method: 'DELETE',
+    });
+    if (res.status !== 204) {
+      const text = await safeReadText(res);
+      throw new Error(`Delete failed (${res.status} ${res.statusText})${text ? `: ${text}` : ''}`);
+    }
+    state.videos = state.videos.filter(v => String(v.id) !== String(video.id));
+    const q = (els.search.value || '').toLowerCase();
+    state.filtered = state.videos.filter(v =>
+      v.title.toLowerCase().includes(q) || (v.description || '').toLowerCase().includes(q)
+    );
+    renderList(state.filtered);
+    showToast({ title: 'Deleted', body: 'Removed from Catalog and storage.', kind: 'success' });
+    if (fileIssue) {
+      showToast({ title: 'Cleanup note', body: fileIssue, kind: 'info' });
+    }
+  } catch (err) {
+    console.error(err);
+    showToast({ title: 'Delete error', body: err?.message || 'Unknown error', kind: 'error' });
+  }
+}
+
+async function safeReadText(res) {
+  try { return (await res.text()).slice(0, 300); } catch { return ''; }
+}
+
 // Settings modal logic
 function openSettings() {
   els.cfgAuth.value = CONFIG.AUTH_BASE_URL;
@@ -225,6 +285,7 @@ async function fetchVideos() {
         title: v.title || 'Untitled',
         description: v.description || '',
         url: v.url || (CONFIG.FILE_BASE_URL && v.path ? `${CONFIG.FILE_BASE_URL}${v.path}` : ''),
+        path: v.path || '',
         thumb: v.thumb || '',
         duration: v.duration || '',
       }));

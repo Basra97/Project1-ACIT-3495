@@ -55,5 +55,19 @@ app.post('/videos', async (req, res) => {
   }
 });
 
+app.delete('/videos/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
+    const p = await getPool();
+    const [result] = await p.execute('DELETE FROM videos WHERE id = ?', [id]);
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'not found' });
+    return res.status(204).send();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
 const port = process.env.PORT || 5001;
 app.listen(port, () => console.log(`Catalog service listening on ${port}`));
