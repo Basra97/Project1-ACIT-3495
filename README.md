@@ -1,25 +1,38 @@
-# Project1-ACIT-3495
-## Stage 1 - Skeleton services (what we added)
+# Video Streaming (Web)
 
-This stage brings up a minimal, containerized set of services to form the skeleton of the video streaming system:
+Lightweight static front‑end for browsing and playing videos. It uses mock authentication and a couple of public sample videos for now and is API‑ready for later wiring.
 
-- MySQL (database) with an initial `videos` table
-- Authentication service (simple Node.js service that validates a single user)
-- Enter-data web service (example of a web service that calls auth and writes metadata to database)
-- File System service (simple file upload and file-read service)
+## Run locally
 
-How to run (on your VM with Docker and Docker Compose):
+- Open `index.html` directly in a browser; or
+- Serve the folder statically (avoids file:// quirks).
 
-1. Open a terminal in the project root (where `docker-compose.yml` is located).
-2. Build and start services:
+Windows PowerShell example (if Python is installed):
 
 ```powershell
-docker-compose up --build
+# from the video-streaming-web folder
+python -m http.server 8080
 ```
 
-3. Expected quick checks:
-- Auth service: http://localhost:4000/validate (POST with JSON {username,password})
-- Enter web: http://localhost:3000/enter (POST)
-- File service health: http://localhost:5000/health (GET)
+Then open http://localhost:8080
 
-We'll now proceed step-by-step. After you test Stage 1 on your VM, tell me what output you saw or any errors and we'll move to Stage 2 (upload web app).
+## Files
+
+- `index.html` – layout with login modal, search, grid, and player modal.
+- `styles.css` – minimal responsive styles.
+- `app.js` – renders list, mock login, search, and player. Endpoints are configurable via localStorage keys:
+  - `AUTH_BASE_URL`, `API_BASE_URL`, `FILE_BASE_URL`.
+
+Set in DevTools console if desired:
+
+```js
+localStorage.setItem('AUTH_BASE_URL', 'http://localhost:4000');
+localStorage.setItem('API_BASE_URL', 'http://localhost:5000');
+localStorage.setItem('FILE_BASE_URL', 'http://localhost:6000');
+```
+
+## Next
+
+- Replace `loginMock` with real auth call.
+- Fetch video list from API (MySQL-backed) and resolve playable URLs via File System service.
+- Containerize (e.g., Nginx) when ready.
