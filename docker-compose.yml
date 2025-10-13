@@ -34,6 +34,18 @@ services:
     volumes:
       - ./video-streaming-web:/usr/share/nginx/html:ro
 
+  catalog-service:
+    build: ./catalog-service
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_USER: root
+      MYSQL_PASSWORD: example
+      MYSQL_DB: data_db
+    ports:
+      - '5001:5001'
+    depends_on:
+      - mysql
+
 volumes:
   mysql-data:
 
