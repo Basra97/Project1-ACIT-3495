@@ -17,6 +17,8 @@ services:
       - '4000:4000'
     depends_on:
       - mysql
+    environment:
+      - JWT_SECRET=supersecret
 
   file-system-service:
     build: ./file-system-service
@@ -41,6 +43,7 @@ services:
       MYSQL_USER: root
       MYSQL_PASSWORD: example
       MYSQL_DB: data_db
+      JWT_SECRET: supersecret
     ports:
       - '5001:5001'
     depends_on:

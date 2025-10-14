@@ -103,13 +103,52 @@ function setAuthUI() {
 function openLogin() { els.loginModal.classList.remove('hidden'); }
 function closeLogin() { els.loginModal.classList.add('hidden'); }
 
-function loginMock(username) {
-  // Later: call `${CONFIG.AUTH_BASE_URL}/login` with fetch
-  const user = { username, token: 'mock-token-' + Math.random().toString(36).slice(2) };
+async function loginMock(username, password) {
+  if (CONFIG.AUTH_BASE_URL) {
+    try {
+      const res = await fetch(`${CONFIG.AUTH_BASE_URL}/validate`, {
+         method: 'POST',
+	 headers: { 'Content-Type': 'application/json' },
+	 body: JSON.stringify({ username, password }),
+      });
+      if (!res.ok) {
+        showToast({ title: 'Login failed', body: 'Invalid credentials', kind: 'error' });
+	return;
+      }
+
+      const data = await res.json();
+
+      if (!data.valid || !data.token) {
+	showToast({ title: 'Login failed', body: 'Invalid response from server', kind: 'error' });
+	return;
+      }
+
+      state.user = { 
+        username: data.username, 
+        token: data.token  // ← Real token from backend
+      };
+      localStorage.setItem('user', JSON.stringify(state.user));
+      setAuthUI();
+      showToast({ title: 'Logged in', body: `Hello, ${username}`, kind: 'success' });
+      // Refresh videos after login
+      await fetchVideos();
+      renderList(state.filtered);
+      return;
+    } catch (err) {
+      console.error('Auth service error:', err);
+      showToast({ title: 'Login error', body: err.message, kind: 'error' });
+      return;
+    }
+  }
+
+  const user = { 
+    username, 
+    token: 'mock-token-' + Math.random().toString(36).slice(2) 
+  };
   state.user = user;
   localStorage.setItem('user', JSON.stringify(user));
   setAuthUI();
-  showToast({ title: 'Logged in', body: `Hello, ${username}`, kind: 'success' });
+  showToast({ title: 'Logged in (mock)', body: `Hello, ${username}`, kind: 'success' });
 }
 
 function logout() {
@@ -276,7 +315,9 @@ async function fetchVideos() {
   if (CONFIG.API_BASE_URL) {
     try {
       const res = await fetch(`${CONFIG.API_BASE_URL}/videos`, {
-        headers: state.user ? { Authorization: `Bearer ${state.user.token}` } : {},
+	headers: (CONFIG.AUTH_BASE_URL && state.user?.token)
+          ? { Authorization: `Bearer ${state.user.token}` }
+          : {},
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const items = await res.json();
@@ -309,44 +350,67 @@ async function fetchVideos() {
   state.filtered = list;
 }
 
-// Events
-els.loginBtn.addEventListener('click', openLogin);
-els.cancelLogin.addEventListener('click', closeLogin);
-els.logoutBtn.addEventListener('click', logout);
-els.closePlayer.addEventListener('click', closePlayer);
-// settings events
-els.settingsBtn.addEventListener('click', openSettings);
-els.settingsCancel?.addEventListener('click', closeSettings);
-els.settingsForm?.addEventListener('submit', (e) => {
-  e.preventDefault();
-  localStorage.setItem('AUTH_BASE_URL', els.cfgAuth.value.trim());
-  localStorage.setItem('API_BASE_URL', els.cfgApi.value.trim());
-  localStorage.setItem('FILE_BASE_URL', els.cfgFile.value.trim());
-  // refresh config in memory
-  CONFIG.AUTH_BASE_URL = localStorage.getItem('AUTH_BASE_URL') || '';
-  CONFIG.API_BASE_URL = localStorage.getItem('API_BASE_URL') || '';
-  CONFIG.FILE_BASE_URL = localStorage.getItem('FILE_BASE_URL') || '';
-  closeSettings();
+
+// Wrap all event listeners in DOMContentLoaded to ensure DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', attachEventListeners);
+} else {
+  // DOM already loaded (script loaded late)
+  attachEventListeners();
+}
+
+function attachEventListeners() {
+  // Events
+  if (els.loginBtn) els.loginBtn.addEventListener('click', openLogin);
+  if (els.cancelLogin) els.cancelLogin.addEventListener('click', closeLogin);
+  if (els.logoutBtn) els.logoutBtn.addEventListener('click', logout);
+  if (els.closePlayer) els.closePlayer.addEventListener('click', closePlayer);
+  
+  // settings events
+  if (els.settingsBtn) els.settingsBtn.addEventListener('click', openSettings);
+  if (els.settingsCancel) els.settingsCancel.addEventListener('click', closeSettings);
+  
+  if (els.settingsForm) {
+    els.settingsForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      localStorage.setItem('AUTH_BASE_URL', els.cfgAuth.value.trim());
+      localStorage.setItem('API_BASE_URL', els.cfgApi.value.trim());
+      localStorage.setItem('FILE_BASE_URL', els.cfgFile.value.trim());
+      // refresh config in memory
+      CONFIG.AUTH_BASE_URL = localStorage.getItem('AUTH_BASE_URL') || '';
+      CONFIG.API_BASE_URL = localStorage.getItem('API_BASE_URL') || '';
+      CONFIG.FILE_BASE_URL = localStorage.getItem('FILE_BASE_URL') || '';
+      closeSettings();
+      fetchVideos().then(() => renderList(state.filtered));
+      showToast({ title: 'Settings saved', kind: 'success' });
+    });
+  }
+
+  if (els.loginForm) {
+    els.loginForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value.trim();
+      if (!username || !password) {
+        showToast({ title: 'Error', body: 'Please enter username and password', kind: 'error' });
+        return;
+      }
+      loginMock(username, password);
+      closeLogin();
+    });
+  }
+
+  if (els.search) {
+    els.search.addEventListener('input', () => {
+      const q = els.search.value.toLowerCase();
+      state.filtered = state.videos.filter(v =>
+        v.title.toLowerCase().includes(q) || (v.description || '').toLowerCase().includes(q)
+      );
+      renderList(state.filtered);
+    });
+  }
+
+  // Initial render after DOM is ready
+  setAuthUI();
   fetchVideos().then(() => renderList(state.filtered));
-  showToast({ title: 'Settings saved', kind: 'success' });
-});
-els.loginForm.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const username = document.getElementById('username').value.trim();
-  const password = document.getElementById('password').value; // For later use
-  if (!username || !password) return;
-  loginMock(username);
-  closeLogin();
-});
-
-els.search.addEventListener('input', () => {
-  const q = els.search.value.toLowerCase();
-  state.filtered = state.videos.filter(v =>
-    v.title.toLowerCase().includes(q) || (v.description || '').toLowerCase().includes(q)
-  );
-  renderList(state.filtered);
-});
-
-// Initial render
-setAuthUI();
-fetchVideos().then(() => renderList(state.filtered));
+}

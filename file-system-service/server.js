@@ -8,6 +8,24 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing or invalid authorization token' });
+  }
+
+  const token = authHeader.slice(7); // Remove "Bearer "
+
+  if (!token) {
+    return res.status(401).json({ error: 'Empty token' });
+  }
+
+  // For mock auth, just check token exists (in production, verify with JWT)
+  req.token = token;
+  next();
+}
+
 const STORAGE_DIR = '/data/files';
 // Ensure storage directory exists on startup
 fs.mkdirSync(STORAGE_DIR, { recursive: true });
@@ -41,7 +59,7 @@ const upload = multer({ storage });
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-app.post('/upload', upload.single('file'), (req, res) => {
+app.post('/upload', requireAuth, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).send('No file uploaded');
   const filePath = path.join('/files', req.file.filename);
   res.json({ path: filePath, filename: req.file.filename });
@@ -51,7 +69,7 @@ app.post('/upload', upload.single('file'), (req, res) => {
 app.use('/files', express.static(STORAGE_DIR, { fallthrough: true }));
 
 // Delete a stored file
-app.delete('/files/:name', async (req, res) => {
+app.delete('/files/:name', requireAuth, async (req, res) => {
   try {
     const name = req.params.name;
     const full = path.join(STORAGE_DIR, name);
