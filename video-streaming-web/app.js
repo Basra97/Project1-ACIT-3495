@@ -139,6 +139,9 @@ function renderList(items) {
   img.loading = 'lazy';
   const fileBase = CONFIG.FILE_BASE_URL || (location.hostname ? `http://${location.hostname}:5000` : '');
   img.src = v.thumb ? (v.thumb.startsWith('http') ? v.thumb : (fileBase ? `${fileBase}${v.thumb}` : v.thumb)) : '';
+    img.onerror = () => {
+      console.warn('Thumbnail failed to load:', img.src);
+    };
 
     const meta = document.createElement('div');
     meta.className = 'meta';
@@ -152,6 +155,18 @@ function renderList(items) {
     meta.appendChild(h); meta.appendChild(p);
     card.appendChild(img); card.appendChild(meta);
     a.appendChild(card);
+    // Fallback: if no thumb provided by API, attempt client-side capture from video URL
+    if (!v.thumb && v.url) {
+      try {
+        captureThumbFromUrl(v.url, 320, 180).then((dataUrl) => {
+          if (dataUrl) {
+            img.src = dataUrl;
+          }
+        });
+      } catch (e) {
+        console.warn('Runtime thumb capture failed:', e?.message || e);
+      }
+    }
     frag.appendChild(a);
   });
   els.list.appendChild(frag);
@@ -353,4 +368,47 @@ if (CONFIG.API_BASE_URL && !state.user) {
   els.list.innerHTML = '<div class="card" style="padding:16px; text-align:center">Login required to view the catalog.</div>';
 } else {
   fetchVideos().then(() => renderList(state.filtered));
+}
+
+// Capture a random frame from a video URL and return a data URL (PNG)
+async function captureThumbFromUrl(videoUrl, width = 320, height = 180) {
+  return new Promise((resolve) => {
+    try {
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.preload = 'metadata';
+      video.muted = true;
+      video.playsInline = true;
+      video.src = videoUrl;
+      video.addEventListener('loadedmetadata', () => {
+        const canvas = document.createElement('canvas');
+        const vw = video.videoWidth || width;
+        const vh = video.videoHeight || height;
+        const ratio = Math.min(width / vw, height / vh) || 1;
+        canvas.width = Math.max(1, Math.floor(vw * ratio));
+        canvas.height = Math.max(1, Math.floor(vh * ratio));
+        const ctx = canvas.getContext('2d');
+        // Pick a random point between 5% and 95%
+        let t = 0;
+        if (!isNaN(video.duration) && video.duration > 0) {
+          const start = Math.max(0, video.duration * 0.05);
+          const end = Math.max(start + 0.05, video.duration * 0.95);
+          t = start + Math.random() * (end - start);
+        }
+        const draw = () => {
+          try {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/png', 0.9));
+          } catch {
+            resolve('');
+          }
+        };
+        video.addEventListener('seeked', draw, { once: true });
+        try { video.currentTime = t; } catch { draw(); }
+      }, { once: true });
+      video.addEventListener('error', () => resolve(''), { once: true });
+    } catch {
+      resolve('');
+    }
+  });
 }
