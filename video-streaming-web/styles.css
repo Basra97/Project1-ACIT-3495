@@ -41,6 +41,9 @@ body {
 
 .card { background: var(--panel); border: 1px solid var(--outline); border-radius: 10px; }
 .video-card { overflow: hidden; position: relative; }
+.media { position: relative; width: 100%; }
+.media::before { content: ""; display: block; padding-top: 56.25%; }
+.media > img.thumb, .media > video.preview-video { position: absolute; inset: 0; width: 100%; height: 100%; }
 .thumb { aspect-ratio: 16/9; width: 100%; object-fit: cover; background: #222; display: block; }
 .preview-video { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; background: black; pointer-events: none; }
 .meta { padding: 8px 10px; }

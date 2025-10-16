@@ -136,6 +136,9 @@ function renderList(items) {
       deleteApiVideo(v);
     });
     card.appendChild(del);
+  // Media container to constrain thumbnail/preview to 16:9 inside the card
+  const media = document.createElement('div');
+  media.className = 'media';
   const img = document.createElement('img');
   img.className = 'thumb';
   img.alt = v.title;
@@ -145,6 +148,7 @@ function renderList(items) {
     img.onerror = () => {
       console.warn('Thumbnail failed to load:', img.src);
     };
+    media.appendChild(img);
 
     const meta = document.createElement('div');
     meta.className = 'meta';
@@ -156,13 +160,13 @@ function renderList(items) {
     p.textContent = v.description || '';
 
     meta.appendChild(h); meta.appendChild(p);
-    card.appendChild(img); card.appendChild(meta);
+    card.appendChild(media); card.appendChild(meta);
     // Hover/focus preview: play a muted looping video when hovering the card
     let hoverTimer;
     const showPreview = () => {
       try {
         if (!v.url) return;
-        if (card.querySelector('video.preview-video')) return; // already showing
+        if (media.querySelector('video.preview-video')) return; // already showing
         const pv = document.createElement('video');
         pv.className = 'preview-video';
         pv.muted = true;
@@ -170,8 +174,8 @@ function renderList(items) {
         pv.loop = true;
         pv.preload = 'metadata';
         pv.src = v.url;
-        // place preview video where the thumbnail is (before meta)
-        card.insertBefore(pv, meta);
+        // place preview video inside media container (over the thumbnail)
+        media.appendChild(pv);
         // hide the image while previewing
         img.style.display = 'none';
         // try to skip initial black frames
@@ -192,7 +196,7 @@ function renderList(items) {
     };
     const hidePreview = () => {
       clearTimeout(hoverTimer);
-      const pv = card.querySelector('video.preview-video');
+      const pv = media.querySelector('video.preview-video');
       if (pv) {
         try { pv.pause(); } catch {}
         pv.remove();
