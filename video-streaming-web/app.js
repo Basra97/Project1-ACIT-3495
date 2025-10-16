@@ -66,6 +66,7 @@ const els = {
   cfgHideMock: document.getElementById('cfg-hide-mock'),
   // toasts
   toastContainer: document.getElementById('toast-container'),
+  uploadLink: document.getElementById('upload-link'),
 };
 
 function showToast({ title = '', body = '', kind = 'info', timeout = 3500 } = {}) {
@@ -356,6 +357,34 @@ els.settingsForm?.addEventListener('submit', (e) => {
   fetchVideos().then(() => renderList(state.filtered));
   showToast({ title: 'Settings saved', kind: 'success' });
 });
+// Gate Upload link by login: if not logged in, open login modal, then redirect after successful login
+if (els.uploadLink) {
+  els.uploadLink.addEventListener('click', (e) => {
+    if (!state.user) {
+      e.preventDefault();
+      openLogin();
+      showToast({ title: 'Login required', body: 'Please login to upload.', kind: 'info' });
+      // After a successful login, navigate to upload page automatically
+      const handler = async (ev) => {
+        ev.preventDefault();
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+        if (!username || !password) return;
+        try {
+          if (!CONFIG.AUTH_BASE_URL) throw new Error('Auth service URL not set. Open Settings.');
+          await loginReal(username, password);
+          closeLogin();
+          els.loginForm.removeEventListener('submit', handler);
+          window.location.href = './upload.html';
+        } catch (err) {
+          showToast({ title: 'Login failed', body: err?.message || 'Error', kind: 'error' });
+        }
+      };
+      // Temporarily override the login submit to redirect
+      els.loginForm.addEventListener('submit', handler);
+    }
+  });
+}
 els.loginForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const username = document.getElementById('username').value.trim();
