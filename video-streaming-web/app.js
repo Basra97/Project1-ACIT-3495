@@ -137,7 +137,8 @@ function renderList(items) {
   img.className = 'thumb';
   img.alt = v.title;
   img.loading = 'lazy';
-  img.src = v.thumb ? (v.thumb.startsWith('http') ? v.thumb : (CONFIG.FILE_BASE_URL ? `${CONFIG.FILE_BASE_URL}${v.thumb}` : v.thumb)) : '';
+  const fileBase = CONFIG.FILE_BASE_URL || (location.hostname ? `http://${location.hostname}:5000` : '');
+  img.src = v.thumb ? (v.thumb.startsWith('http') ? v.thumb : (fileBase ? `${fileBase}${v.thumb}` : v.thumb)) : '';
 
     const meta = document.createElement('div');
     meta.className = 'meta';
