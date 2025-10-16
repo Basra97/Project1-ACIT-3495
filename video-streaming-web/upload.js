@@ -1,4 +1,4 @@
-// Mock Upload UI logic: stores a lightweight representation in localStorage
+// Upload UI (backend-only)
 
 const els = {
   form: document.getElementById('upload-form'),
@@ -77,9 +77,9 @@ async function loginReal(username, password) {
   state.user = user;
   sessionStorage.setItem('user', JSON.stringify(user));
   setAuthUI();
+  setFormEnabled(true);
   showToast({ title: 'Logged in', body: `Hello, ${user.username}`, kind: 'success' });
 }
-function logout() { state.user = null; localStorage.removeItem('user'); setAuthUI(); showToast({ title: 'Logged out', kind: 'info' }); }
 function logout() { state.user = null; sessionStorage.removeItem('user'); setAuthUI(); showToast({ title: 'Logged out', kind: 'info' }); }
 
 function openSettings() {
@@ -96,6 +96,14 @@ function showPreview(file) {
   objectUrl = URL.createObjectURL(file);
   els.previewVideo.src = objectUrl;
   els.preview.style.display = 'block';
+}
+
+function setFormEnabled(enabled) {
+  const disabled = !enabled;
+  els.title && (els.title.disabled = disabled);
+  els.description && (els.description.disabled = disabled);
+  els.file && (els.file.disabled = disabled);
+  els.submitBtn && (els.submitBtn.disabled = disabled);
 }
 
 els.file.addEventListener('change', () => {
@@ -130,7 +138,7 @@ els.form.addEventListener('submit', async (e) => {
   els.cancel && (els.cancel.disabled = true);
   els.uploadingIndicator && els.uploadingIndicator.classList.remove('hidden');
 
-  // If File and Catalog services are configured, try real backend flow.
+  // Require backend services to be configured
   const canUseBackend = Boolean(CONFIG.FILE_BASE_URL) && Boolean(CONFIG.API_BASE_URL);
   if (canUseBackend) {
     try {
@@ -170,32 +178,15 @@ els.form.addEventListener('submit', async (e) => {
       window.location.href = './index.html';
       return;
     } catch (err) {
-      console.error('Backend upload failed, falling back to local mock:', err);
+      console.error('Backend upload failed:', err);
       const msg = (err && err.message) ? err.message : 'Unknown error';
       showToast({ title: 'Upload error', body: msg, kind: 'error' });
-      showToast({ title: 'Fallback', body: 'Saving locally only for now.', kind: 'info' });
-      // fall through to local mock save
+      return restoreUi();
     }
   }
-
-  // Fallback: local mock save so the UI remains usable without backend
-  const id = 'local-' + Date.now();
-  const entry = {
-    id,
-    title: title || file.name,
-    description,
-    url: objectUrl,
-    thumb: '',
-    duration: '',
-    _local: true,
-  };
-  const key = 'LOCAL_UPLOADS';
-  const current = JSON.parse(localStorage.getItem(key) || '[]');
-  current.unshift(entry);
-  localStorage.setItem(key, JSON.stringify(current));
-  sessionStorage.setItem('TOAST', JSON.stringify({ title: 'Upload added', body: 'Mock upload saved locally', kind: 'success' }));
+  // If backend is not configured, block upload
+  showToast({ title: 'Backend required', body: 'Set File and API Base URLs in Settings.', kind: 'error' });
   restoreUi();
-  window.location.href = './index.html';
 });
 
 // auth events
@@ -233,6 +224,19 @@ els.settingsForm?.addEventListener('submit', (e) => {
 
 // init
 setAuthUI();
+// Require login before using the upload page: disable form and prompt login
+if (!state.user) {
+  setFormEnabled(false);
+  openLogin();
+  showToast({ title: 'Login required', body: 'Please login to upload.', kind: 'info' });
+}
+
+// If user cancels login while not authenticated, navigate back
+els.cancelLogin?.addEventListener('click', () => {
+  if (!state.user) {
+    history.back();
+  }
+});
 
 // If redirected here in the future, could read session toast as well (not used on this page now)
 

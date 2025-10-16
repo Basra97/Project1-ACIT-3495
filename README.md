@@ -7,9 +7,7 @@ Containerized microservices + static front-end:
 - Catalog Service (Node/Express + mysql2) for listing/registering videos
 - Static front-end (Nginx) serving `video-streaming-web/`
 
-The front-end pages can operate in two modes:
-- Mock-only (no backend): uploads stored in browser localStorage
-- Backend-connected: Upload page calls File System → Catalog; Streaming page lists from Catalog. Login is a simple credential check via the Auth service `/validate` endpoint (no tokens).
+The front-end is backend-only: Upload calls File System → Catalog; Streaming lists from Catalog. Login is a simple credential check via the Auth service `/validate` endpoint (no tokens).
 
 ---
 
@@ -51,10 +49,10 @@ docker compose up -d --build
 Services:
 - mysql: 3306 (DB `data_db`, table `videos`) – schema from `mysql/init/init.sql`
 - auth-service: 4000 – `/validate`
-- Note: the Auth service auto-creates a simple `users` table on startup (if missing) and seeds a default user for convenience:
+- Auth defaults (in-memory):
 	- Username: `admin`
 	- Password: `admin123`
-	- You can override with env vars `DEFAULT_ADMIN_USER` and `DEFAULT_ADMIN_PASS`.
+	- Override with `DEFAULT_ADMIN_USER` and `DEFAULT_ADMIN_PASS`.
 - file-system-service: 5000 – `/upload`, `/files/*` static, `DELETE /files/:name`
 - catalog-service: 5001 – `GET/POST /videos`, `DELETE /videos/:id`
 - video-web: 8080 – serves `video-streaming-web/`
@@ -70,20 +68,19 @@ docker compose ps
 Open the front-end: http://localhost:8080
 
 Settings modal values:
-- Auth Base URL: http://localhost:4000 (optional; mock auth works without it)
+- Auth Base URL: http://localhost:4000
 - API Base URL: http://localhost:5001
 - File Base URL: http://localhost:5000
 
-Upload page flow (backend-connected):
+Upload page flow:
 1) POST /upload to File System → returns `{ path: "/files/<name>" }`
 2) POST /videos to Catalog with `{ title, path }`
 3) On success: toast “Upload complete” and redirect to Streaming page
-4) On failure: toast shows exact error and falls back to local mock save
+4) On failure: toast shows the error (no local fallback)
 
 Streaming page:
-- Lists items from Catalog when API Base URL is set
-- Local-only items still show when API is not set; they have Delete for local removal
-- Delete on API-backed items removes from Catalog (and attempts to delete the stored file)
+- Lists items from Catalog (no sample or local items)
+- Delete removes from Catalog (and attempts to delete the stored file)
 
 Quick API checks (curl):
 
@@ -131,17 +128,14 @@ Based on the requirements and flow chart (Auth → File System → Catalog → S
 
 Implemented
 - Front-end: Streaming page (search, player, settings), Upload page with “Uploading…” indicator and detailed error toasts
-- Authentication Service: `/validate` (CORS enabled). Beginner-friendly: in-memory credentials only; defaults:
-	- Username: `admin`
-	- Password: `admin123`
-- File System Service: `/upload`, static `/files/*`, `DELETE /files/:name` (CORS enabled). Filenames sanitized and storage directory ensured.
-- Catalog Service: `GET /videos`, `POST /videos`, `DELETE /videos/:id` (CORS enabled)
-- MySQL: auto-initialized schema `videos(id, title, path, uploaded_at)`
+- Authentication Service: `/validate` (CORS). In-memory credentials (admin/admin123 by default)
+- File System Service: `/upload`, static `/files/*`, `DELETE /files/:name` (CORS). Filenames sanitized and storage directory ensured.
+- Catalog Service: `GET /videos`, `POST /videos`, `DELETE /videos/:id` (CORS)
+- MySQL: schema `videos(id, title, path, uploaded_at)`
 - Docker Compose stack and Nginx static hosting
 
 Partially implemented
-- Front-end list uses Catalog when configured; mock + local fallback otherwise
-- Deletion from UI removes Catalog row and attempts file deletion (best-effort). If file is missing, the UI still removes the row and shows a cleanup note.
+- Deletion from UI attempts file deletion (best-effort). If file is missing, the UI still removes the row and shows a cleanup note.
 
 Not implemented yet
 - Strong auth/session management (no JWT/tokens). Login is a simple credential check to unlock UI actions; backend endpoints are open for the assignment's minimum.

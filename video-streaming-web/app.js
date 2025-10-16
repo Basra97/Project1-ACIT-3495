@@ -1,6 +1,6 @@
 // Simple frontend for Video Streaming (Web)
-// - Uses mock auth and mock video data for now
-// - API-ready: configure BASE_URLS when backend is available
+// - Backend-only: lists videos from Catalog; no mock data or local fallback
+// - Configure BASE_URLS in Settings
 
 const CONFIG = {
   AUTH_BASE_URL: localStorage.getItem('AUTH_BASE_URL') || '', // e.g., http://localhost:4000
@@ -8,35 +8,11 @@ const CONFIG = {
   FILE_BASE_URL: localStorage.getItem('FILE_BASE_URL') || '', // e.g., http://localhost:5000
 };
 
-// Mock store
-const mock = {
-  // Public domain/sample videos
-  videos: [
-    {
-      id: 'big-buck-bunny',
-      title: 'Big Buck Bunny (sample)',
-      description: 'Open movie project - CC BY',
-      // Remote MP4 to ensure it plays without backend
-      url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-      thumb: 'https://i.imgur.com/0rK9g2K.jpeg',
-      duration: '09:56',
-    },
-    {
-      id: 'sintel',
-      title: 'Sintel (trailer sample)',
-      description: 'Blender Foundation - CC BY',
-      url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
-      thumb: 'https://i.imgur.com/7T7rYQH.jpeg',
-      duration: '04:50',
-    },
-  ],
-};
-
 // App state
 const state = {
   user: JSON.parse(sessionStorage.getItem('user') || 'null'),
-  videos: mock.videos,
-  filtered: mock.videos,
+  videos: [],
+  filtered: [],
 };
 
 // DOM
@@ -63,7 +39,6 @@ const els = {
   cfgAuth: document.getElementById('cfg-auth'),
   cfgApi: document.getElementById('cfg-api'),
   cfgFile: document.getElementById('cfg-file'),
-  cfgHideMock: document.getElementById('cfg-hide-mock'),
   // toasts
   toastContainer: document.getElementById('toast-container'),
   uploadLink: document.getElementById('upload-link'),
@@ -139,14 +114,13 @@ function renderList(items) {
 
     const card = document.createElement('article');
     card.className = 'card video-card';
-    // Delete button for both local and API items
-    const isLocal = v._local || String(v.id || '').startsWith('local-');
+    // Delete button for API items
     const del = document.createElement('button');
     del.className = 'delete-btn';
     del.type = 'button';
     del.textContent = 'Delete';
-    del.title = isLocal ? 'Remove local video' : 'Remove from Catalog and Storage';
-    const needsAuth = Boolean(CONFIG.API_BASE_URL) && !isLocal;
+    del.title = 'Remove from Catalog and Storage';
+    const needsAuth = Boolean(CONFIG.API_BASE_URL);
     if (needsAuth && !state.user) {
       del.disabled = true;
       del.title = 'Login required to delete';
@@ -156,11 +130,7 @@ function renderList(items) {
       e.stopPropagation();
       const ok = confirm('Delete this video?');
       if (!ok) return;
-      if (isLocal) {
-        deleteLocalVideo(v.id);
-      } else {
-        deleteApiVideo(v);
-      }
+      deleteApiVideo(v);
     });
     card.appendChild(del);
     const img = document.createElement('img');
@@ -186,29 +156,7 @@ function renderList(items) {
   els.list.appendChild(frag);
 }
 
-function deleteLocalVideo(id) {
-  try {
-    const key = 'LOCAL_UPLOADS';
-    const current = JSON.parse(localStorage.getItem(key) || '[]');
-    const next = current.filter(v => v.id !== id);
-    if (next.length === current.length) {
-      showToast({ title: 'Not found', body: 'Could not find local video.', kind: 'error' });
-      return;
-    }
-    localStorage.setItem(key, JSON.stringify(next));
-    // Remove from state
-    state.videos = state.videos.filter(v => v.id !== id);
-    const q = (els.search.value || '').toLowerCase();
-    state.filtered = state.videos.filter(v =>
-      v.title.toLowerCase().includes(q) || (v.description || '').toLowerCase().includes(q)
-    );
-    renderList(state.filtered);
-    showToast({ title: 'Removed', body: 'Local video deleted.', kind: 'success' });
-  } catch (err) {
-    console.error('Delete failed', err);
-    showToast({ title: 'Delete failed', kind: 'error' });
-  }
-}
+// No local delete: only API-backed items are shown
 
 function openPlayer(v) {
   els.player.pause();
@@ -285,52 +233,42 @@ function openSettings() {
   els.cfgAuth.value = CONFIG.AUTH_BASE_URL;
   els.cfgApi.value = CONFIG.API_BASE_URL;
   els.cfgFile.value = CONFIG.FILE_BASE_URL;
-  if (els.cfgHideMock) {
-    els.cfgHideMock.checked = localStorage.getItem('HIDE_MOCK') === '1';
-  }
   els.settingsModal.classList.remove('hidden');
 }
 function closeSettings() { els.settingsModal.classList.add('hidden'); }
 
 async function fetchVideos() {
-  if (CONFIG.API_BASE_URL) {
-    try {
-      if (!state.user) {
-        showToast({ title: 'Login required', body: 'Login to view videos from Catalog.', kind: 'info' });
-        state.videos = [];
-        state.filtered = [];
-        return;
-      }
-      const res = await fetch(`${CONFIG.API_BASE_URL}/videos`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const items = await res.json();
-      state.videos = (Array.isArray(items) ? items : []).map(v => ({
-        id: v.id || v._id || crypto.randomUUID(),
-        title: v.title || 'Untitled',
-        description: v.description || '',
-        url: v.url || (CONFIG.FILE_BASE_URL && v.path ? `${CONFIG.FILE_BASE_URL}${v.path}` : ''),
-        path: v.path || '',
-        thumb: v.thumb || '',
-        duration: v.duration || '',
-      }));
-      state.filtered = state.videos;
-      return;
-    } catch (err) {
-      console.warn('Fetch /videos failed, using mock. Reason:', err?.message || err);
-      showToast({ title: 'Using mock data', body: 'Could not load from API.', kind: 'info' });
-    }
+  if (!CONFIG.API_BASE_URL) {
+    state.videos = [];
+    state.filtered = [];
+    return;
   }
-  // Base list = mock (can be hidden in Settings)
-  let list = localStorage.getItem('HIDE_MOCK') === '1' ? [] : [...mock.videos];
-  // Merge in local uploads (if any) at the top
   try {
-    const local = JSON.parse(localStorage.getItem('LOCAL_UPLOADS') || '[]');
-    if (Array.isArray(local)) {
-      list = [...local, ...list];
+    if (!state.user) {
+      showToast({ title: 'Login required', body: 'Login to view videos from Catalog.', kind: 'info' });
+      state.videos = [];
+      state.filtered = [];
+      return;
     }
-  } catch {}
-  state.videos = list;
-  state.filtered = list;
+    const res = await fetch(`${CONFIG.API_BASE_URL}/videos`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const items = await res.json();
+    state.videos = (Array.isArray(items) ? items : []).map(v => ({
+      id: v.id || v._id || crypto.randomUUID(),
+      title: v.title || 'Untitled',
+      description: v.description || '',
+      url: v.url || (CONFIG.FILE_BASE_URL && v.path ? `${CONFIG.FILE_BASE_URL}${v.path}` : ''),
+      path: v.path || '',
+      thumb: v.thumb || '',
+      duration: v.duration || '',
+    }));
+    state.filtered = state.videos;
+  } catch (err) {
+    console.warn('Fetch /videos failed.', err?.message || err);
+    showToast({ title: 'Load error', body: 'Could not load from API.', kind: 'error' });
+    state.videos = [];
+    state.filtered = [];
+  }
 }
 
 // Events
@@ -346,9 +284,6 @@ els.settingsForm?.addEventListener('submit', (e) => {
   localStorage.setItem('AUTH_BASE_URL', els.cfgAuth.value.trim());
   localStorage.setItem('API_BASE_URL', els.cfgApi.value.trim());
   localStorage.setItem('FILE_BASE_URL', els.cfgFile.value.trim());
-  if (els.cfgHideMock) {
-    localStorage.setItem('HIDE_MOCK', els.cfgHideMock.checked ? '1' : '0');
-  }
   // refresh config in memory
   CONFIG.AUTH_BASE_URL = localStorage.getItem('AUTH_BASE_URL') || '';
   CONFIG.API_BASE_URL = localStorage.getItem('API_BASE_URL') || '';
@@ -411,4 +346,10 @@ els.search.addEventListener('input', () => {
 
 // Initial render
 setAuthUI();
-fetchVideos().then(() => renderList(state.filtered));
+// If API is configured and user isn't logged in, force login first and show placeholder instead of the list
+if (CONFIG.API_BASE_URL && !state.user) {
+  openLogin();
+  els.list.innerHTML = '<div class="card" style="padding:16px; text-align:center">Login required to view the catalog.</div>';
+} else {
+  fetchVideos().then(() => renderList(state.filtered));
+}
