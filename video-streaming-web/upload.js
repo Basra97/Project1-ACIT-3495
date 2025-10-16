@@ -30,7 +30,7 @@ const els = {
 
 let objectUrl = null;
 let state = {
-  user: JSON.parse(localStorage.getItem('user') || 'null'),
+  user: JSON.parse(sessionStorage.getItem('user') || 'null'),
 };
 
 const CONFIG = {
@@ -73,13 +73,14 @@ async function loginReal(username, password) {
   });
   const data = await res.json();
   if (!data?.valid) throw new Error('Invalid credentials');
-  const user = { username: data.user?.username || username };
+  const user = { username: data.user?.username || username, password };
   state.user = user;
-  localStorage.setItem('user', JSON.stringify(user));
+  sessionStorage.setItem('user', JSON.stringify(user));
   setAuthUI();
   showToast({ title: 'Logged in', body: `Hello, ${user.username}`, kind: 'success' });
 }
 function logout() { state.user = null; localStorage.removeItem('user'); setAuthUI(); showToast({ title: 'Logged out', kind: 'info' }); }
+function logout() { state.user = null; sessionStorage.removeItem('user'); setAuthUI(); showToast({ title: 'Logged out', kind: 'info' }); }
 
 function openSettings() {
   if (!els.settingsModal) return;
@@ -133,6 +134,7 @@ els.form.addEventListener('submit', async (e) => {
   const canUseBackend = Boolean(CONFIG.FILE_BASE_URL) && Boolean(CONFIG.API_BASE_URL);
   if (canUseBackend) {
     try {
+      if (!state.user) throw new Error('Login required');
       // 1) Upload file to File System service
       const fd = new FormData();
       fd.append('file', file);
@@ -151,10 +153,9 @@ els.form.addEventListener('submit', async (e) => {
       if (!path) throw new Error('No path returned from file service');
 
       // 2) Record metadata in Catalog service
-      const headers = { 'content-type': 'application/json' };
       const metaRes = await fetch(`${CONFIG.API_BASE_URL}/videos`, {
         method: 'POST',
-        headers,
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ title: title || file.name, path }),
       });
       if (!metaRes.ok) {

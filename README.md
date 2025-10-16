@@ -9,7 +9,7 @@ Containerized microservices + static front-end:
 
 The front-end pages can operate in two modes:
 - Mock-only (no backend): uploads stored in browser localStorage
-- Backend-connected: Upload page calls File System → Catalog; Streaming page lists from Catalog
+- Backend-connected: Upload page calls File System → Catalog; Streaming page lists from Catalog. Login is a simple credential check via the Auth service `/validate` endpoint (no tokens).
 
 ---
 
@@ -51,6 +51,10 @@ docker compose up -d --build
 Services:
 - mysql: 3306 (DB `data_db`, table `videos`) – schema from `mysql/init/init.sql`
 - auth-service: 4000 – `/validate`
+- Note: the Auth service auto-creates a simple `users` table on startup (if missing) and seeds a default user for convenience:
+	- Username: `admin`
+	- Password: `admin123`
+	- You can override with env vars `DEFAULT_ADMIN_USER` and `DEFAULT_ADMIN_PASS`.
 - file-system-service: 5000 – `/upload`, `/files/*` static, `DELETE /files/:name`
 - catalog-service: 5001 – `GET/POST /videos`, `DELETE /videos/:id`
 - video-web: 8080 – serves `video-streaming-web/`
@@ -84,10 +88,10 @@ Streaming page:
 Quick API checks (curl):
 
 ```bash
-# Auth
+# Auth (simple validate)
 curl -s -X POST http://localhost:4000/validate \
 	-H 'content-type: application/json' \
-	-d '{"username":"admin","password":"1234"}'
+	-d '{"username":"admin","password":"admin123"}'
 
 # File upload (Linux/Debian example)
 echo "hello" > /tmp/test.txt
@@ -127,7 +131,9 @@ Based on the requirements and flow chart (Auth → File System → Catalog → S
 
 Implemented
 - Front-end: Streaming page (search, player, settings), Upload page with “Uploading…” indicator and detailed error toasts
-- Authentication Service: `/validate` (CORS enabled)
+- Authentication Service: `/validate` (CORS enabled). Beginner-friendly: in-memory credentials only; defaults:
+	- Username: `admin`
+	- Password: `admin123`
 - File System Service: `/upload`, static `/files/*`, `DELETE /files/:name` (CORS enabled). Filenames sanitized and storage directory ensured.
 - Catalog Service: `GET /videos`, `POST /videos`, `DELETE /videos/:id` (CORS enabled)
 - MySQL: auto-initialized schema `videos(id, title, path, uploaded_at)`
@@ -138,7 +144,7 @@ Partially implemented
 - Deletion from UI removes Catalog row and attempts file deletion (best-effort). If file is missing, the UI still removes the row and shows a cleanup note.
 
 Not implemented yet
-- Real login/session management (front-end uses mock unless Auth Base URL is provided; services don’t enforce auth tokens)
+- Strong auth/session management (no JWT/tokens). Login is a simple credential check to unlock UI actions; backend endpoints are open for the assignment's minimum.
 - Video thumbnails or transcoding pipeline
 - File size/type validation and error localization
 - Deduplication between local-only entries and Catalog items once they appear in the DB
@@ -155,10 +161,14 @@ Not implemented yet
 	- `docker compose ps`
 	- `docker compose logs -n 200 file-system-service`
 	- `docker compose logs -n 200 catalog-service`
+	- `docker compose logs -n 200 auth-service`
 - CORS
 	- All services have CORS enabled; if you added gateways/proxies, ensure they allow DELETE/POST headers
 - Port conflicts
 	- Adjust host ports in `docker-compose.yml` (e.g., change 8080:80)
+
+Removed
+	- The database no longer stores users; the Auth service uses in-memory defaults for simplicity.
 
 ---
 

@@ -34,7 +34,7 @@ const mock = {
 
 // App state
 const state = {
-  user: JSON.parse(localStorage.getItem('user') || 'null'),
+  user: JSON.parse(sessionStorage.getItem('user') || 'null'),
   videos: mock.videos,
   filtered: mock.videos,
 };
@@ -63,6 +63,7 @@ const els = {
   cfgAuth: document.getElementById('cfg-auth'),
   cfgApi: document.getElementById('cfg-api'),
   cfgFile: document.getElementById('cfg-file'),
+  cfgHideMock: document.getElementById('cfg-hide-mock'),
   // toasts
   toastContainer: document.getElementById('toast-container'),
 };
@@ -112,16 +113,16 @@ async function loginReal(username, password) {
   });
   const data = await res.json();
   if (!data?.valid) throw new Error('Invalid credentials');
-  const user = { username: data.user?.username || username };
+  const user = { username: data.user?.username || username, password };
   state.user = user;
-  localStorage.setItem('user', JSON.stringify(user));
+  sessionStorage.setItem('user', JSON.stringify(user));
   setAuthUI();
   showToast({ title: 'Logged in', body: `Hello, ${user.username}`, kind: 'success' });
 }
 
 function logout() {
   state.user = null;
-  localStorage.removeItem('user');
+  sessionStorage.removeItem('user');
   setAuthUI();
   showToast({ title: 'Logged out', kind: 'info' });
 }
@@ -144,6 +145,11 @@ function renderList(items) {
     del.type = 'button';
     del.textContent = 'Delete';
     del.title = isLocal ? 'Remove local video' : 'Remove from Catalog and Storage';
+    const needsAuth = Boolean(CONFIG.API_BASE_URL) && !isLocal;
+    if (needsAuth && !state.user) {
+      del.disabled = true;
+      del.title = 'Login required to delete';
+    }
     del.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -221,6 +227,11 @@ async function deleteApiVideo(video) {
       showToast({ title: 'API not configured', body: 'Set API Base URL in Settings', kind: 'error' });
       return;
     }
+    if (!state.user) {
+      openLogin();
+      showToast({ title: 'Login required', body: 'Please login to delete videos.', kind: 'error' });
+      return;
+    }
     // Try to delete the stored file first (best effort)
     let fileIssue = '';
     try {
@@ -243,9 +254,7 @@ async function deleteApiVideo(video) {
       fileIssue = e?.message || 'File delete error';
     }
 
-    const res = await fetch(`${CONFIG.API_BASE_URL}/videos/${encodeURIComponent(video.id)}`, {
-      method: 'DELETE',
-    });
+    const res = await fetch(`${CONFIG.API_BASE_URL}/videos/${encodeURIComponent(video.id)}`, { method: 'DELETE' });
     if (res.status !== 204) {
       const text = await safeReadText(res);
       throw new Error(`Delete failed (${res.status} ${res.statusText})${text ? `: ${text}` : ''}`);
@@ -275,6 +284,9 @@ function openSettings() {
   els.cfgAuth.value = CONFIG.AUTH_BASE_URL;
   els.cfgApi.value = CONFIG.API_BASE_URL;
   els.cfgFile.value = CONFIG.FILE_BASE_URL;
+  if (els.cfgHideMock) {
+    els.cfgHideMock.checked = localStorage.getItem('HIDE_MOCK') === '1';
+  }
   els.settingsModal.classList.remove('hidden');
 }
 function closeSettings() { els.settingsModal.classList.add('hidden'); }
@@ -282,7 +294,13 @@ function closeSettings() { els.settingsModal.classList.add('hidden'); }
 async function fetchVideos() {
   if (CONFIG.API_BASE_URL) {
     try {
-  const res = await fetch(`${CONFIG.API_BASE_URL}/videos`);
+      if (!state.user) {
+        showToast({ title: 'Login required', body: 'Login to view videos from Catalog.', kind: 'info' });
+        state.videos = [];
+        state.filtered = [];
+        return;
+      }
+      const res = await fetch(`${CONFIG.API_BASE_URL}/videos`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const items = await res.json();
       state.videos = (Array.isArray(items) ? items : []).map(v => ({
@@ -301,8 +319,8 @@ async function fetchVideos() {
       showToast({ title: 'Using mock data', body: 'Could not load from API.', kind: 'info' });
     }
   }
-  // Base list = mock
-  let list = [...mock.videos];
+  // Base list = mock (can be hidden in Settings)
+  let list = localStorage.getItem('HIDE_MOCK') === '1' ? [] : [...mock.videos];
   // Merge in local uploads (if any) at the top
   try {
     const local = JSON.parse(localStorage.getItem('LOCAL_UPLOADS') || '[]');
@@ -327,6 +345,9 @@ els.settingsForm?.addEventListener('submit', (e) => {
   localStorage.setItem('AUTH_BASE_URL', els.cfgAuth.value.trim());
   localStorage.setItem('API_BASE_URL', els.cfgApi.value.trim());
   localStorage.setItem('FILE_BASE_URL', els.cfgFile.value.trim());
+  if (els.cfgHideMock) {
+    localStorage.setItem('HIDE_MOCK', els.cfgHideMock.checked ? '1' : '0');
+  }
   // refresh config in memory
   CONFIG.AUTH_BASE_URL = localStorage.getItem('AUTH_BASE_URL') || '';
   CONFIG.API_BASE_URL = localStorage.getItem('API_BASE_URL') || '';
