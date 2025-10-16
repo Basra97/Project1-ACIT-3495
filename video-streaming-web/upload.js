@@ -64,12 +64,20 @@ function setAuthUI() {
 
 function openLogin() { els.loginModal?.classList.remove('hidden'); }
 function closeLogin() { els.loginModal?.classList.add('hidden'); }
-function loginMock(username) {
-  const user = { username, token: 'mock-token-' + Math.random().toString(36).slice(2) };
+async function loginReal(username, password) {
+  const url = `${CONFIG.AUTH_BASE_URL}/validate`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  const data = await res.json();
+  if (!data?.valid) throw new Error('Invalid credentials');
+  const user = { username: data.user?.username || username };
   state.user = user;
   localStorage.setItem('user', JSON.stringify(user));
   setAuthUI();
-  showToast({ title: 'Logged in', body: `Hello, ${username}`, kind: 'success' });
+  showToast({ title: 'Logged in', body: `Hello, ${user.username}`, kind: 'success' });
 }
 function logout() { state.user = null; localStorage.removeItem('user'); setAuthUI(); showToast({ title: 'Logged out', kind: 'info' }); }
 
@@ -143,9 +151,10 @@ els.form.addEventListener('submit', async (e) => {
       if (!path) throw new Error('No path returned from file service');
 
       // 2) Record metadata in Catalog service
+      const headers = { 'content-type': 'application/json' };
       const metaRes = await fetch(`${CONFIG.API_BASE_URL}/videos`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers,
         body: JSON.stringify({ title: title || file.name, path }),
       });
       if (!metaRes.ok) {
@@ -192,35 +201,17 @@ els.form.addEventListener('submit', async (e) => {
 els.loginBtn?.addEventListener('click', openLogin);
 els.cancelLogin?.addEventListener('click', closeLogin);
 els.logoutBtn?.addEventListener('click', logout);
-els.loginForm?.addEventListener('submit', (e) => {
+els.loginForm?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
   if (!username || !password) return;
-  // If Auth service configured, validate for real; else use mock
-  if (CONFIG.AUTH_BASE_URL) {
-    fetch(`${CONFIG.AUTH_BASE_URL}/validate`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    })
-      .then(r => r.json())
-      .then(data => {
-        if (data && data.valid) {
-          const user = { username, token: 'auth-ok' };
-          state.user = user;
-          localStorage.setItem('user', JSON.stringify(user));
-          setAuthUI();
-          closeLogin();
-          showToast({ title: 'Logged in', body: `Hello, ${username}`, kind: 'success' });
-        } else {
-          showToast({ title: 'Login failed', body: 'Invalid credentials', kind: 'error' });
-        }
-      })
-      .catch(() => showToast({ title: 'Login error', body: 'Auth service not reachable', kind: 'error' }));
-  } else {
-    loginMock(username);
+  try {
+    if (!CONFIG.AUTH_BASE_URL) throw new Error('Auth service URL not set. Open Settings.');
+    await loginReal(username, password);
     closeLogin();
+  } catch (err) {
+    showToast({ title: 'Login failed', body: err?.message || 'Error', kind: 'error' });
   }
 });
 

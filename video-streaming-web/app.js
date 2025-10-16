@@ -3,9 +3,9 @@
 // - API-ready: configure BASE_URLS when backend is available
 
 const CONFIG = {
-  AUTH_BASE_URL: localStorage.getItem('AUTH_BASE_URL') || '', // e.g., http://localhost:3001
-  API_BASE_URL: localStorage.getItem('API_BASE_URL') || '',   // e.g., http://localhost:3002
-  FILE_BASE_URL: localStorage.getItem('FILE_BASE_URL') || '', // e.g., http://localhost:3003
+  AUTH_BASE_URL: localStorage.getItem('AUTH_BASE_URL') || '', // e.g., http://localhost:4000
+  API_BASE_URL: localStorage.getItem('API_BASE_URL') || '',   // e.g., http://localhost:5001
+  FILE_BASE_URL: localStorage.getItem('FILE_BASE_URL') || '', // e.g., http://localhost:5000
 };
 
 // Mock store
@@ -103,13 +103,20 @@ function setAuthUI() {
 function openLogin() { els.loginModal.classList.remove('hidden'); }
 function closeLogin() { els.loginModal.classList.add('hidden'); }
 
-function loginMock(username) {
-  // Later: call `${CONFIG.AUTH_BASE_URL}/login` with fetch
-  const user = { username, token: 'mock-token-' + Math.random().toString(36).slice(2) };
+async function loginReal(username, password) {
+  const url = `${CONFIG.AUTH_BASE_URL}/validate`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  const data = await res.json();
+  if (!data?.valid) throw new Error('Invalid credentials');
+  const user = { username: data.user?.username || username };
   state.user = user;
   localStorage.setItem('user', JSON.stringify(user));
   setAuthUI();
-  showToast({ title: 'Logged in', body: `Hello, ${username}`, kind: 'success' });
+  showToast({ title: 'Logged in', body: `Hello, ${user.username}`, kind: 'success' });
 }
 
 function logout() {
@@ -275,9 +282,7 @@ function closeSettings() { els.settingsModal.classList.add('hidden'); }
 async function fetchVideos() {
   if (CONFIG.API_BASE_URL) {
     try {
-      const res = await fetch(`${CONFIG.API_BASE_URL}/videos`, {
-        headers: state.user ? { Authorization: `Bearer ${state.user.token}` } : {},
-      });
+  const res = await fetch(`${CONFIG.API_BASE_URL}/videos`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const items = await res.json();
       state.videos = (Array.isArray(items) ? items : []).map(v => ({
@@ -330,13 +335,20 @@ els.settingsForm?.addEventListener('submit', (e) => {
   fetchVideos().then(() => renderList(state.filtered));
   showToast({ title: 'Settings saved', kind: 'success' });
 });
-els.loginForm.addEventListener('submit', (e) => {
+els.loginForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const username = document.getElementById('username').value.trim();
-  const password = document.getElementById('password').value; // For later use
+  const password = document.getElementById('password').value;
   if (!username || !password) return;
-  loginMock(username);
-  closeLogin();
+  try {
+    if (!CONFIG.AUTH_BASE_URL) throw new Error('Auth service URL not set. Open Settings.');
+    await loginReal(username, password);
+    closeLogin();
+    await fetchVideos();
+    renderList(state.filtered);
+  } catch (err) {
+    showToast({ title: 'Login failed', body: err?.message || 'Error', kind: 'error' });
+  }
 });
 
 els.search.addEventListener('input', () => {

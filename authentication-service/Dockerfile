@@ -1,7 +1,14 @@
-FROM node:16
+FROM node:18
 WORKDIR /usr/src/app
 COPY package*.json ./
 RUN npm install
 COPY . .
 EXPOSE 4000
+ENV PORT=4000 \
+	MYSQL_HOST=mysql \
+	MYSQL_USER=root \
+	MYSQL_PASSWORD=example \
+	MYSQL_DB=data_db \
+	DEFAULT_ADMIN_USER=admin \
+	DEFAULT_ADMIN_PASS=admin123
 CMD ["node", "server.js"]
