@@ -15,6 +15,9 @@ const state = {
   filtered: [],
 };
 
+// Cache for generated runtime thumbnails so they don't change on re-render
+const THUMB_CACHE = new Map(); // key: video.id or url -> dataUrl
+
 // DOM
 const els = {
   loginBtn: document.getElementById('login-btn'),
@@ -208,16 +211,23 @@ function renderList(items) {
     });
     a.addEventListener('blur', hidePreview);
     a.appendChild(card);
-    // Fallback: if no thumb provided by API, attempt client-side capture from video URL
+    // Fallback: if no thumb provided by API, attempt client-side capture ONCE and cache it
     if (!v.thumb && v.url) {
-      try {
-        captureThumbFromUrl(v.url, 320, 180).then((dataUrl) => {
-          if (dataUrl) {
-            img.src = dataUrl;
-          }
-        });
-      } catch (e) {
-        console.warn('Runtime thumb capture failed:', e?.message || e);
+      const key = v.id || v.url;
+      const cached = THUMB_CACHE.get(key);
+      if (cached) {
+        img.src = cached;
+      } else {
+        try {
+          captureThumbFromUrl(v.url, 320, 180).then((dataUrl) => {
+            if (dataUrl) {
+              THUMB_CACHE.set(key, dataUrl);
+              img.src = dataUrl;
+            }
+          });
+        } catch (e) {
+          console.warn('Runtime thumb capture failed:', e?.message || e);
+        }
       }
     }
     frag.appendChild(a);
@@ -423,7 +433,7 @@ if (CONFIG.API_BASE_URL && !state.user) {
   fetchVideos().then(() => renderList(state.filtered));
 }
 
-// Capture a random frame from a video URL and return a data URL (PNG)
+// Capture a deterministic frame from a video URL and return a data URL (PNG)
 async function captureThumbFromUrl(videoUrl, width = 320, height = 180) {
   return new Promise((resolve) => {
     try {
@@ -441,12 +451,10 @@ async function captureThumbFromUrl(videoUrl, width = 320, height = 180) {
         canvas.width = Math.max(1, Math.floor(vw * ratio));
         canvas.height = Math.max(1, Math.floor(vh * ratio));
         const ctx = canvas.getContext('2d');
-        // Pick a random point between 5% and 95%
+        // Choose a deterministic point: 5% into the video or 0.1s, whichever is larger
         let t = 0;
         if (!isNaN(video.duration) && video.duration > 0) {
-          const start = Math.max(0, video.duration * 0.05);
-          const end = Math.max(start + 0.05, video.duration * 0.95);
-          t = start + Math.random() * (end - start);
+          t = Math.max(0.1, video.duration * 0.05);
         }
         const draw = () => {
           try {

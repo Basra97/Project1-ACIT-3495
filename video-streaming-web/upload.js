@@ -160,10 +160,10 @@ els.form.addEventListener('submit', async (e) => {
       const path = upData.path || (upData.filename ? `/files/${upData.filename}` : '');
       if (!path) throw new Error('No path returned from file service');
 
-      // 2) Generate a thumbnail (client-side) and upload it (best-effort)
+      // 2) Generate a thumbnail (client-side, deterministic frame) and upload it (best-effort)
       let thumbPath = '';
       try {
-        const thumbBlob = await extractThumbnailBlob(file, 320, 180, { random: true, attempts: 5 });
+        const thumbBlob = await extractThumbnailBlob(file, 320, 180, { random: false, attempts: 5 });
         if (thumbBlob) {
           const tfd = new FormData();
           const base = (title || file.name).replace(/\.[^.]+$/, '');

@@ -42,7 +42,7 @@ body {
 .card { background: var(--panel); border: 1px solid var(--outline); border-radius: 10px; }
 .video-card { overflow: hidden; position: relative; }
 .thumb { aspect-ratio: 16/9; width: 100%; object-fit: cover; background: #222; display: block; }
-.preview-video { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; background: black; }
+.preview-video { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; background: black; pointer-events: none; }
 .meta { padding: 8px 10px; }
 .title { margin: 0 0 6px; font-size: 15px; }
 .subtitle { margin: 0; color: var(--muted); font-size: 12px; }
