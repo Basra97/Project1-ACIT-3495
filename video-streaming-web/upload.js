@@ -160,11 +160,29 @@ els.form.addEventListener('submit', async (e) => {
       const path = upData.path || (upData.filename ? `/files/${upData.filename}` : '');
       if (!path) throw new Error('No path returned from file service');
 
-      // 2) Record metadata in Catalog service
+      // 2) Generate a thumbnail (client-side) and upload it (best-effort)
+      let thumbPath = '';
+      try {
+        const thumbBlob = await extractThumbnailBlob(file, 320, 180);
+        if (thumbBlob) {
+          const tfd = new FormData();
+          const base = (title || file.name).replace(/\.[^.]+$/, '');
+          tfd.append('file', thumbBlob, `${base}-thumb.png`);
+          const tRes = await fetch(`${CONFIG.FILE_BASE_URL}/upload`, { method: 'POST', body: tfd });
+          if (tRes.ok) {
+            const tData = await tRes.json();
+            thumbPath = tData.path || (tData.filename ? `/files/${tData.filename}` : '');
+          }
+        }
+      } catch (e) {
+        console.warn('Thumbnail generation/upload failed:', e?.message || e);
+      }
+
+      // 3) Record metadata in Catalog service
       const metaRes = await fetch(`${CONFIG.API_BASE_URL}/videos`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ title: title || file.name, path }),
+        body: JSON.stringify({ title: title || file.name, path, thumb: thumbPath || null }),
       });
       if (!metaRes.ok) {
         const text = await safeReadText(metaRes);
@@ -248,5 +266,47 @@ async function safeReadText(res) {
   } catch {
     return '';
   }
+}
+
+// Extract a thumbnail PNG Blob from the first frame of a video file
+async function extractThumbnailBlob(file, width = 320, height = 180) {
+  return new Promise((resolve) => {
+    try {
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.muted = true;
+      video.playsInline = true;
+      const url = URL.createObjectURL(file);
+      video.src = url;
+      const cleanup = () => URL.revokeObjectURL(url);
+      video.addEventListener('loadeddata', () => {
+        const canvas = document.createElement('canvas');
+        const vw = video.videoWidth || width;
+        const vh = video.videoHeight || height;
+        const ratio = Math.min(width / vw, height / vh) || 1;
+        canvas.width = Math.max(1, Math.floor(vw * ratio));
+        canvas.height = Math.max(1, Math.floor(vh * ratio));
+        const ctx = canvas.getContext('2d');
+        try { video.currentTime = Math.min(0.1, (video.duration || 1) * 0.01); } catch {}
+        const draw = () => {
+          try {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob((blob) => { cleanup(); resolve(blob); }, 'image/png', 0.9);
+          } catch {
+            cleanup(); resolve(null);
+          }
+        };
+        // If seekable, wait for seeked; otherwise draw immediately
+        if (!isNaN(video.duration) && video.duration > 0) {
+          video.addEventListener('seeked', draw, { once: true });
+        } else {
+          draw();
+        }
+      }, { once: true });
+      video.addEventListener('error', () => { cleanup(); resolve(null); }, { once: true });
+    } catch {
+      resolve(null);
+    }
+  });
 }
 

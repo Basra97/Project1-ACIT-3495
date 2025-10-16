@@ -29,12 +29,23 @@ async function getPool() {
   return pool;
 }
 
+// Ensure schema includes optional thumb column
+async function ensureSchema() {
+  const p = await getPool();
+  try {
+    await p.query("ALTER TABLE videos ADD COLUMN thumb VARCHAR(1024) NULL");
+  } catch (e) {
+    // ignore if exists
+  }
+}
+
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
+ensureSchema().catch(() => {});
 
 app.get('/videos', async (req, res) => {
   try {
     const p = await getPool();
-    const [rows] = await p.query('SELECT id, title, path, uploaded_at FROM videos ORDER BY uploaded_at DESC');
+  const [rows] = await p.query('SELECT id, title, path, thumb, uploaded_at FROM videos ORDER BY uploaded_at DESC');
     res.json(rows);
   } catch (e) {
     console.error(e);
@@ -44,11 +55,11 @@ app.get('/videos', async (req, res) => {
 
 app.post('/videos', async (req, res) => {
   try {
-    const { title, path } = req.body || {};
-    if (!title || !path) return res.status(400).json({ error: 'title and path required' });
+  const { title, path, thumb } = req.body || {};
+  if (!title || !path) return res.status(400).json({ error: 'title and path required' });
     const p = await getPool();
-    const [result] = await p.execute('INSERT INTO videos (title, path) VALUES (?, ?)', [title, path]);
-    res.status(201).json({ id: result.insertId, title, path });
+  const [result] = await p.execute('INSERT INTO videos (title, path, thumb) VALUES (?, ?, ?)', [title, path, thumb || null]);
+  res.status(201).json({ id: result.insertId, title, path, thumb: thumb || null });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'DB error' });

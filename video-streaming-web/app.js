@@ -133,11 +133,11 @@ function renderList(items) {
       deleteApiVideo(v);
     });
     card.appendChild(del);
-    const img = document.createElement('img');
-    img.className = 'thumb';
-    img.alt = v.title;
-    img.loading = 'lazy';
-    img.src = v.thumb || '';
+  const img = document.createElement('img');
+  img.className = 'thumb';
+  img.alt = v.title;
+  img.loading = 'lazy';
+  img.src = v.thumb ? (v.thumb.startsWith('http') ? v.thumb : (CONFIG.FILE_BASE_URL ? `${CONFIG.FILE_BASE_URL}${v.thumb}` : v.thumb)) : '';
 
     const meta = document.createElement('div');
     meta.className = 'meta';
@@ -253,13 +253,13 @@ async function fetchVideos() {
     const res = await fetch(`${CONFIG.API_BASE_URL}/videos`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const items = await res.json();
-    state.videos = (Array.isArray(items) ? items : []).map(v => ({
+      state.videos = (Array.isArray(items) ? items : []).map(v => ({
       id: v.id || v._id || crypto.randomUUID(),
       title: v.title || 'Untitled',
       description: v.description || '',
       url: v.url || (CONFIG.FILE_BASE_URL && v.path ? `${CONFIG.FILE_BASE_URL}${v.path}` : ''),
       path: v.path || '',
-      thumb: v.thumb || '',
+        thumb: v.thumb || '',
       duration: v.duration || '',
     }));
     state.filtered = state.videos;
