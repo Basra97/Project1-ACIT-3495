@@ -54,7 +54,7 @@ Services:
 	- Password: `admin123`
 	- Override with `DEFAULT_ADMIN_USER` and `DEFAULT_ADMIN_PASS`.
 - file-system-service: 5000 – `/upload`, `/files/*` static, `DELETE /files/:name`
-- catalog-service: 5001 – `GET/POST /videos`, `DELETE /videos/:id`
+- catalog-service: 5001 – `GET/POST /videos`, `DELETE /videos/:id` (stores optional `thumb` path)
 - video-web: 8080 – serves `video-streaming-web/`
 
 Check status:
@@ -78,9 +78,13 @@ Upload page flow:
 3) On success: toast “Upload complete” and redirect to Streaming page
 4) On failure: toast shows the error (no local fallback)
 
+Optional:
+- The UI captures a single deterministic thumbnail frame client-side (browser-decoding permitting), uploads it to the File service, and includes `thumb` when saving to the Catalog.
+
 Streaming page:
 - Lists items from Catalog (no sample or local items)
 - Delete removes from Catalog (and attempts to delete the stored file)
+ - Shows a static thumbnail per video; hovering/focusing a card plays a muted looping preview inside the card
 
 Quick API checks (curl):
 
@@ -131,15 +135,19 @@ Implemented
 - Authentication Service: `/validate` (CORS). In-memory credentials (admin/admin123 by default)
 - File System Service: `/upload`, static `/files/*`, `DELETE /files/:name` (CORS). Filenames sanitized and storage directory ensured.
 - Catalog Service: `GET /videos`, `POST /videos`, `DELETE /videos/:id` (CORS)
-- MySQL: schema `videos(id, title, path, uploaded_at)`
+- MySQL: schema `videos(id, title, path, uploaded_at)` (UI/runtime may add a `thumb` column at startup if missing)
 - Docker Compose stack and Nginx static hosting
+
+Additional UI behavior
+- Thumbnails: client-side single-frame capture on upload (deterministic) saved to File service and referenced as `thumb` in Catalog when available; if `thumb` is missing, the UI may capture one at runtime and cache it for the session.
+- Hover preview: plays a muted looping preview within the card without leaving the page.
 
 Partially implemented
 - Deletion from UI attempts file deletion (best-effort). If file is missing, the UI still removes the row and shows a cleanup note.
 
 Not implemented yet
 - Strong auth/session management (no JWT/tokens). Login is a simple credential check to unlock UI actions; backend endpoints are open for the assignment's minimum.
-- Video thumbnails or transcoding pipeline
+- Server-side thumbnailing/transcoding pipeline (current thumbnails are client-side only)
 - File size/type validation and error localization
 - Deduplication between local-only entries and Catalog items once they appear in the DB
 
@@ -160,6 +168,13 @@ Not implemented yet
 	- All services have CORS enabled; if you added gateways/proxies, ensure they allow DELETE/POST headers
 - Port conflicts
 	- Adjust host ports in `docker-compose.yml` (e.g., change 8080:80)
+ - Thumbnails not visible
+	- Ensure Settings have correct File Base URL (e.g., http://localhost:5000)
+	- Confirm `GET http://localhost:5001/videos` returns `thumb` for rows uploaded after this feature
+	- Check that `http://localhost:5000/files/*.png` requests return 200 in the browser Network tab
+ - Preview not playing
+	- Previews are muted and should autoplay; if blocked, click once anywhere on the page
+	- Verify the video URL resolves (Catalog `path` + File Base URL) and the codec is browser-decodable (H.264 MP4 recommended)
 
 Removed
 	- The database no longer stores users; the Auth service uses in-memory defaults for simplicity.
@@ -176,5 +191,5 @@ Removed
 
 Suggested next tasks
 - Enforce auth (JWT/session) on all endpoints; pass token from front-end
-- Add thumbnails and/or streaming-optimized formats
+- Add server-side thumbnail/transcoding (ffmpeg) and/or streaming-optimized formats
 - Improve error surfaces and add loading states to the Streaming page
