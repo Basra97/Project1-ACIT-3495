@@ -154,6 +154,59 @@ function renderList(items) {
 
     meta.appendChild(h); meta.appendChild(p);
     card.appendChild(img); card.appendChild(meta);
+    // Hover/focus preview: play a muted looping video when hovering the card
+    let hoverTimer;
+    const showPreview = () => {
+      try {
+        if (!v.url) return;
+        if (card.querySelector('video.preview-video')) return; // already showing
+        const pv = document.createElement('video');
+        pv.className = 'preview-video';
+        pv.muted = true;
+        pv.playsInline = true;
+        pv.loop = true;
+        pv.preload = 'metadata';
+        pv.src = v.url;
+        // place preview video where the thumbnail is (before meta)
+        card.insertBefore(pv, meta);
+        // hide the image while previewing
+        img.style.display = 'none';
+        // try to skip initial black frames
+        pv.addEventListener('loadedmetadata', () => {
+          try {
+            const t = Math.min(1, Math.max(0, (pv.duration || 0) * 0.05));
+            pv.currentTime = t;
+          } catch {}
+        }, { once: true });
+        // attempt autoplay
+        const playAttempt = pv.play();
+        if (playAttempt && typeof playAttempt.then === 'function') {
+          playAttempt.catch(() => {/* ignore autoplay block */});
+        }
+      } catch (e) {
+        console.warn('Preview failed:', e?.message || e);
+      }
+    };
+    const hidePreview = () => {
+      clearTimeout(hoverTimer);
+      const pv = card.querySelector('video.preview-video');
+      if (pv) {
+        try { pv.pause(); } catch {}
+        pv.remove();
+      }
+      img.style.display = '';
+    };
+    card.addEventListener('mouseenter', () => {
+      clearTimeout(hoverTimer);
+      hoverTimer = setTimeout(showPreview, 200);
+    });
+    card.addEventListener('mouseleave', hidePreview);
+    // keyboard accessibility: show preview on focus, hide on blur
+    a.addEventListener('focus', () => {
+      clearTimeout(hoverTimer);
+      hoverTimer = setTimeout(showPreview, 300);
+    });
+    a.addEventListener('blur', hidePreview);
     a.appendChild(card);
     // Fallback: if no thumb provided by API, attempt client-side capture from video URL
     if (!v.thumb && v.url) {
