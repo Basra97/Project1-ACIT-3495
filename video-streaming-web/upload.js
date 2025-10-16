@@ -163,7 +163,7 @@ els.form.addEventListener('submit', async (e) => {
       // 2) Generate a thumbnail (client-side) and upload it (best-effort)
       let thumbPath = '';
       try {
-        const thumbBlob = await extractThumbnailBlob(file, 320, 180);
+        const thumbBlob = await extractThumbnailBlob(file, 320, 180, { random: true, attempts: 5 });
         if (thumbBlob) {
           const tfd = new FormData();
           const base = (title || file.name).replace(/\.[^.]+$/, '');
@@ -268,8 +268,12 @@ async function safeReadText(res) {
   }
 }
 
-// Extract a thumbnail PNG Blob from the first frame of a video file
-async function extractThumbnailBlob(file, width = 320, height = 180) {
+// Extract a thumbnail PNG Blob from a video file
+// Options:
+//  - random: pick a random timestamp between 5% and 95% of duration (fallback to ~first frame)
+//  - attempts: number of seek/draw retries on failure
+async function extractThumbnailBlob(file, width = 320, height = 180, opts = {}) {
+  const { random = false, attempts = 3 } = opts || {};
   return new Promise((resolve) => {
     try {
       const video = document.createElement('video');
@@ -279,7 +283,8 @@ async function extractThumbnailBlob(file, width = 320, height = 180) {
       const url = URL.createObjectURL(file);
       video.src = url;
       const cleanup = () => URL.revokeObjectURL(url);
-      video.addEventListener('loadeddata', () => {
+
+      video.addEventListener('loadedmetadata', () => {
         const canvas = document.createElement('canvas');
         const vw = video.videoWidth || width;
         const vh = video.videoHeight || height;
@@ -287,21 +292,36 @@ async function extractThumbnailBlob(file, width = 320, height = 180) {
         canvas.width = Math.max(1, Math.floor(vw * ratio));
         canvas.height = Math.max(1, Math.floor(vh * ratio));
         const ctx = canvas.getContext('2d');
-        try { video.currentTime = Math.min(0.1, (video.duration || 1) * 0.01); } catch {}
-        const draw = () => {
-          try {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            canvas.toBlob((blob) => { cleanup(); resolve(blob); }, 'image/png', 0.9);
-          } catch {
-            cleanup(); resolve(null);
+
+        let tries = Math.max(1, attempts);
+        const tryOnce = () => {
+          let t = 0;
+          if (!isNaN(video.duration) && video.duration > 0) {
+            if (random) {
+              const start = Math.max(0, video.duration * 0.05);
+              const end = Math.max(start + 0.05, video.duration * 0.95);
+              t = start + Math.random() * (end - start);
+            } else {
+              t = Math.min(0.1, video.duration * 0.01);
+            }
           }
+          const onSeeked = () => {
+            try {
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              canvas.toBlob((blob) => { cleanup(); resolve(blob); }, 'image/png', 0.9);
+            } catch (e) {
+              if (--tries > 0) {
+                setTimeout(tryOnce, 60);
+              } else {
+                cleanup();
+                resolve(null);
+              }
+            }
+          };
+          video.addEventListener('seeked', onSeeked, { once: true });
+          try { video.currentTime = t; } catch { onSeeked(); }
         };
-        // If seekable, wait for seeked; otherwise draw immediately
-        if (!isNaN(video.duration) && video.duration > 0) {
-          video.addEventListener('seeked', draw, { once: true });
-        } else {
-          draw();
-        }
+        tryOnce();
       }, { once: true });
       video.addEventListener('error', () => { cleanup(); resolve(null); }, { once: true });
     } catch {
