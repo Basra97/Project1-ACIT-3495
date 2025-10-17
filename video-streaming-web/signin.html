@@ -14,7 +14,7 @@
       <button id="settings-btn" class="btn outline" style="margin-left:8px">Settings</button>
     </header>
     <main class="container">
-      <section class="card" style="padding:16px; display:grid; gap:12px;">
+      <section id="signup-section" class="card hidden" style="padding:16px; display:grid; gap:12px;">
         <h2>Create account</h2>
         <form id="signup-form" style="display:grid; gap:8px;">
           <label>Username <input id="su-username" required /></label>
@@ -24,7 +24,7 @@
           </div>
         </form>
       </section>
-      <section class="card" style="padding:16px; display:grid; gap:12px; margin-top:16px;">
+      <section id="signin-section" class="card" style="padding:16px; display:grid; gap:12px; margin-top:16px;">
         <h2>Sign in</h2>
         <form id="signin-form" style="display:grid; gap:8px;">
           <label>Username <input id="si-username" required /></label>
@@ -32,6 +32,7 @@
           <div class="actions" style="display:flex; gap:8px; justify-content:flex-end;">
             <button class="btn" type="submit">Sign in</button>
           </div>
+          <p class="hint small">Admin account exists by default (admin / admin123).</p>
         </form>
       </section>
     </main>

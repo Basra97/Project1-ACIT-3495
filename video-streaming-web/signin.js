@@ -1,6 +1,8 @@
 const els = {
   signupForm: document.getElementById('signup-form'),
   signinForm: document.getElementById('signin-form'),
+  signupSection: document.getElementById('signup-section'),
+  signinSection: document.getElementById('signin-section'),
   settingsBtn: document.getElementById('settings-btn'),
   settingsModal: document.getElementById('settings-modal'),
   settingsForm: document.getElementById('settings-form'),
@@ -22,6 +24,16 @@ function showToast(msg, kind='info'){
   const h = document.createElement('div'); h.className = 'title'; h.textContent = msg;
   t.appendChild(h); els.toasts.appendChild(t); setTimeout(()=>t.remove(), 3000);
 }
+// Show signup only if the user has never logged in before
+try {
+  const firstTime = localStorage.getItem('HAS_LOGGED_IN') !== 'true';
+  if (firstTime) {
+    els.signupSection.classList.remove('hidden');
+  } else {
+    els.signupSection.classList.add('hidden');
+  }
+} catch {}
+
 
 function openSettings(){
   els.cfgAuth.value = CONFIG.AUTH_BASE_URL; els.cfgApi.value = CONFIG.API_BASE_URL; els.cfgFile.value = CONFIG.FILE_BASE_URL;
@@ -63,6 +75,7 @@ els.signupForm.addEventListener('submit', async (e)=>{
     const res = await signup(username, password);
     sessionStorage.setItem('token', res.token);
     sessionStorage.setItem('user', JSON.stringify({ username }));
+    try { localStorage.setItem('HAS_LOGGED_IN', 'true'); } catch {}
     showToast('Account created and signed in', 'success');
     setTimeout(()=> { window.location.href = './index.html'; }, 500);
   }catch(err){ showToast(err.message || 'Signup error', 'error'); }
@@ -77,6 +90,7 @@ els.signinForm.addEventListener('submit', async (e)=>{
     const res = await login(username, password);
     sessionStorage.setItem('token', res.token);
     sessionStorage.setItem('user', JSON.stringify({ username }));
+    try { localStorage.setItem('HAS_LOGGED_IN', 'true'); } catch {}
     showToast('Signed in', 'success');
     setTimeout(()=> { window.location.href = './index.html'; }, 500);
   }catch(err){ showToast(err.message || 'Login error', 'error'); }

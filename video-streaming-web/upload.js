@@ -81,6 +81,7 @@ async function loginReal(username, password) {
   state.token = token;
   sessionStorage.setItem('user', JSON.stringify(user));
   if (token) sessionStorage.setItem('token', token); else sessionStorage.removeItem('token');
+  try { localStorage.setItem('HAS_LOGGED_IN', 'true'); } catch {}
   setAuthUI();
   setFormEnabled(true);
   showToast({ title: 'Logged in', body: `Hello, ${user.username}`, kind: 'success' });
