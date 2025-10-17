@@ -3,6 +3,7 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 app.use(cors());
@@ -39,9 +40,25 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+// JWT middleware
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
+const JWT_ISSUER = process.env.JWT_ISSUER || 'auth-service';
+function verifyJWT(req, res, next) {
+  try {
+    const hdr = req.headers['authorization'] || '';
+    const m = /^Bearer\s+(.+)$/i.exec(hdr);
+    if (!m) return res.status(401).send('missing token');
+    const token = m[1];
+    jwt.verify(token, JWT_SECRET, { issuer: JWT_ISSUER });
+    return next();
+  } catch (e) {
+    return res.status(401).send('invalid token');
+  }
+}
+
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-app.post('/upload', upload.single('file'), (req, res) => {
+app.post('/upload', verifyJWT, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).send('No file uploaded');
   const filePath = path.join('/files', req.file.filename);
   res.json({ path: filePath, filename: req.file.filename });
@@ -51,7 +68,7 @@ app.post('/upload', upload.single('file'), (req, res) => {
 app.use('/files', express.static(STORAGE_DIR, { fallthrough: true }));
 
 // Delete a stored file
-app.delete('/files/:name', async (req, res) => {
+app.delete('/files/:name', verifyJWT, async (req, res) => {
   try {
     const name = req.params.name;
     const full = path.join(STORAGE_DIR, name);

@@ -31,6 +31,7 @@ const els = {
 let objectUrl = null;
 let state = {
   user: JSON.parse(sessionStorage.getItem('user') || 'null'),
+  token: sessionStorage.getItem('token') || '',
 };
 
 const CONFIG = {
@@ -65,22 +66,27 @@ function setAuthUI() {
 function openLogin() { els.loginModal?.classList.remove('hidden'); }
 function closeLogin() { els.loginModal?.classList.add('hidden'); }
 async function loginReal(username, password) {
-  const url = `${CONFIG.AUTH_BASE_URL}/validate`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username, password }),
-  });
-  const data = await res.json();
-  if (!data?.valid) throw new Error('Invalid credentials');
-  const user = { username: data.user?.username || username, password };
+  // Prefer JWT /login; fallback to /validate
+  let token = '';
+  try {
+    const r = await fetch(`${CONFIG.AUTH_BASE_URL}/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password }) });
+    if (r.ok) { const j = await r.json(); token = j?.token || ''; }
+  } catch {}
+  if (!token) {
+    const r2 = await fetch(`${CONFIG.AUTH_BASE_URL}/validate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password }) });
+    const j2 = await r2.json(); if (!j2?.valid) throw new Error('Invalid credentials');
+  }
+  const user = { username };
   state.user = user;
+  state.token = token;
   sessionStorage.setItem('user', JSON.stringify(user));
+  if (token) sessionStorage.setItem('token', token); else sessionStorage.removeItem('token');
   setAuthUI();
   setFormEnabled(true);
   showToast({ title: 'Logged in', body: `Hello, ${user.username}`, kind: 'success' });
 }
 function logout() { state.user = null; sessionStorage.removeItem('user'); setAuthUI(); showToast({ title: 'Logged out', kind: 'info' }); }
+function authHeader() { return state.token ? { Authorization: `Bearer ${state.token}` } : {}; }
 
 function openSettings() {
   if (!els.settingsModal) return;
@@ -146,10 +152,8 @@ els.form.addEventListener('submit', async (e) => {
       // 1) Upload file to File System service
       const fd = new FormData();
       fd.append('file', file);
-      const upRes = await fetch(`${CONFIG.FILE_BASE_URL}/upload`, {
-        method: 'POST',
-        body: fd,
-      });
+      if (!state.token) throw new Error('Missing token; please login again');
+      const upRes = await fetch(`${CONFIG.FILE_BASE_URL}/upload`, { method: 'POST', headers: authHeader(), body: fd });
       if (!upRes.ok) {
         const text = await safeReadText(upRes);
         const err = new Error(`File upload failed (${upRes.status} ${upRes.statusText})${text ? `: ${text}` : ''}`);
@@ -168,7 +172,7 @@ els.form.addEventListener('submit', async (e) => {
           const tfd = new FormData();
           const base = (title || file.name).replace(/\.[^.]+$/, '');
           tfd.append('file', thumbBlob, `${base}-thumb.png`);
-          const tRes = await fetch(`${CONFIG.FILE_BASE_URL}/upload`, { method: 'POST', body: tfd });
+          const tRes = await fetch(`${CONFIG.FILE_BASE_URL}/upload`, { method: 'POST', headers: authHeader(), body: tfd });
           if (tRes.ok) {
             const tData = await tRes.json();
             thumbPath = tData.path || (tData.filename ? `/files/${tData.filename}` : '');
@@ -179,11 +183,7 @@ els.form.addEventListener('submit', async (e) => {
       }
 
       // 3) Record metadata in Catalog service
-      const metaRes = await fetch(`${CONFIG.API_BASE_URL}/videos`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ title: title || file.name, path, thumb: thumbPath || null }),
-      });
+      const metaRes = await fetch(`${CONFIG.API_BASE_URL}/videos`, { method: 'POST', headers: { 'content-type': 'application/json', ...authHeader() }, body: JSON.stringify({ title: title || file.name, path, thumb: thumbPath || null }) });
       if (!metaRes.ok) {
         const text = await safeReadText(metaRes);
         const err = new Error(`Catalog save failed (${metaRes.status} ${metaRes.statusText})${text ? `: ${text}` : ''}`);

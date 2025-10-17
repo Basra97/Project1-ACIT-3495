@@ -11,6 +11,7 @@ const CONFIG = {
 // App state
 const state = {
   user: JSON.parse(sessionStorage.getItem('user') || 'null'),
+  token: sessionStorage.getItem('token') || '',
   videos: [],
   filtered: [],
 };
@@ -84,24 +85,45 @@ function openLogin() { els.loginModal.classList.remove('hidden'); }
 function closeLogin() { els.loginModal.classList.add('hidden'); }
 
 async function loginReal(username, password) {
-  const url = `${CONFIG.AUTH_BASE_URL}/validate`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username, password }),
-  });
-  const data = await res.json();
-  if (!data?.valid) throw new Error('Invalid credentials');
-  const user = { username: data.user?.username || username, password };
+  // Prefer JWT login; fallback to /validate for legacy
+  let token = '';
+  try {
+    const res = await fetch(`${CONFIG.AUTH_BASE_URL}/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      token = data?.token || '';
+    } else if (res.status !== 404) {
+      const t = await res.text();
+      throw new Error(`Login failed (${res.status}) ${t || ''}`.trim());
+    }
+  } catch (e) {
+    // continue to /validate fallback
+  }
+  if (!token) {
+    const res = await fetch(`${CONFIG.AUTH_BASE_URL}/validate`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (!data?.valid) throw new Error('Invalid credentials');
+  }
+  const user = { username };
   state.user = user;
+  state.token = token;
   sessionStorage.setItem('user', JSON.stringify(user));
+  if (token) sessionStorage.setItem('token', token); else sessionStorage.removeItem('token');
   setAuthUI();
   showToast({ title: 'Logged in', body: `Hello, ${user.username}`, kind: 'success' });
 }
 
 function logout() {
   state.user = null;
+  state.token = '';
   sessionStorage.removeItem('user');
+  sessionStorage.removeItem('token');
   setAuthUI();
   showToast({ title: 'Logged out', kind: 'info' });
 }
@@ -275,7 +297,7 @@ async function deleteApiVideo(video) {
           fileEndpoint = video.url;
         }
         if (fileEndpoint) {
-          const fr = await fetch(fileEndpoint, { method: 'DELETE' });
+          const fr = await fetch(fileEndpoint, { method: 'DELETE', headers: state.token ? { Authorization: `Bearer ${state.token}` } : {} });
           if (![200, 204, 404].includes(fr.status)) {
             const t = await safeReadText(fr);
             fileIssue = `File delete: ${fr.status} ${fr.statusText}${t ? ` - ${t}` : ''}`;
@@ -286,7 +308,11 @@ async function deleteApiVideo(video) {
       fileIssue = e?.message || 'File delete error';
     }
 
-    const res = await fetch(`${CONFIG.API_BASE_URL}/videos/${encodeURIComponent(video.id)}`, { method: 'DELETE' });
+    if (!state.token) {
+      showToast({ title: 'Auth required', body: 'Please login again to get a token.', kind: 'error' });
+      return;
+    }
+    const res = await fetch(`${CONFIG.API_BASE_URL}/videos/${encodeURIComponent(video.id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${state.token}` } });
     if (res.status !== 204) {
       const text = await safeReadText(res);
       throw new Error(`Delete failed (${res.status} ${res.statusText})${text ? `: ${text}` : ''}`);

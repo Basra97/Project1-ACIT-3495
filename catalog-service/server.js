@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import mysql from 'mysql2/promise';
+import jwt from 'jsonwebtoken';
 
 const app = express();
 app.use(cors());
@@ -12,6 +13,25 @@ const config = {
   password: process.env.MYSQL_PASSWORD || 'example',
   database: process.env.MYSQL_DB || 'data_db',
 };
+
+const auth = {
+  jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-me',
+  jwtIssuer: process.env.JWT_ISSUER || 'auth-service',
+};
+
+function verifyJWT(req, res, next) {
+  try {
+    const hdr = req.headers['authorization'] || '';
+    const m = /^Bearer\s+(.+)$/i.exec(hdr);
+    if (!m) return res.status(401).json({ error: 'missing token' });
+    const token = m[1];
+    const payload = jwt.verify(token, auth.jwtSecret, { issuer: auth.jwtIssuer });
+    req.user = payload;
+    next();
+  } catch (e) {
+    return res.status(401).json({ error: 'invalid token' });
+  }
+}
 
 let pool;
 async function getPool() {
@@ -53,20 +73,20 @@ app.get('/videos', async (req, res) => {
   }
 });
 
-app.post('/videos', async (req, res) => {
+app.post('/videos', verifyJWT, async (req, res) => {
   try {
-  const { title, path, thumb } = req.body || {};
-  if (!title || !path) return res.status(400).json({ error: 'title and path required' });
+    const { title, path, thumb } = req.body || {};
+    if (!title || !path) return res.status(400).json({ error: 'title and path required' });
     const p = await getPool();
-  const [result] = await p.execute('INSERT INTO videos (title, path, thumb) VALUES (?, ?, ?)', [title, path, thumb || null]);
-  res.status(201).json({ id: result.insertId, title, path, thumb: thumb || null });
+    const [result] = await p.execute('INSERT INTO videos (title, path, thumb) VALUES (?, ?, ?)', [title, path, thumb || null]);
+    res.status(201).json({ id: result.insertId, title, path, thumb: thumb || null });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'DB error' });
   }
 });
 
-app.delete('/videos/:id', async (req, res) => {
+app.delete('/videos/:id', verifyJWT, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
