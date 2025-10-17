@@ -124,7 +124,7 @@ els.cancel.addEventListener('click', () => {
 
 els.form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  // require login for mock upload to simulate flow
+  // require login for upload
   if (!state.user) {
     openLogin();
     showToast({ title: 'Login required', body: 'Please login to upload.', kind: 'error' });
