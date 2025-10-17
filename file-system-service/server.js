@@ -64,8 +64,34 @@ app.post('/upload', verifyJWT, upload.single('file'), (req, res) => {
   res.json({ path: filePath, filename: req.file.filename });
 });
 
-// Serve files statically
-app.use('/files', express.static(STORAGE_DIR, { fallthrough: true }));
+// Serve files statically but require auth for reads; support token via header or query param
+function extractToken(req) {
+  const hdr = req.headers['authorization'] || '';
+  const m = /^Bearer\s+(.+)$/i.exec(hdr);
+  if (m) return m[1];
+  // Allow token in query for <video src> convenience
+  if (req.query && typeof req.query.token === 'string' && req.query.token) return req.query.token;
+  return '';
+}
+
+function verifyJWTForStatic(req, res, next) {
+  try {
+    const token = extractToken(req);
+    if (!token) return res.status(401).send('missing token');
+    jwt.verify(token, JWT_SECRET, { issuer: JWT_ISSUER });
+    return next();
+  } catch (e) {
+    return res.status(401).send('invalid token');
+  }
+}
+
+app.use('/files', (req, res, next) => {
+  // Only protect GET/HEAD for reading files; other methods handled elsewhere
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    return verifyJWTForStatic(req, res, () => express.static(STORAGE_DIR, { fallthrough: true })(req, res, next));
+  }
+  return express.static(STORAGE_DIR, { fallthrough: true })(req, res, next);
+});
 
 // Delete a stored file
 app.delete('/files/:name', verifyJWT, async (req, res) => {

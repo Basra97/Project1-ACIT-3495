@@ -167,7 +167,10 @@ function renderList(items) {
   img.alt = v.title;
   img.loading = 'lazy';
   const fileBase = CONFIG.FILE_BASE_URL || (location.hostname ? `http://${location.hostname}:5000` : '');
-  img.src = v.thumb ? (v.thumb.startsWith('http') ? v.thumb : (fileBase ? `${fileBase}${v.thumb}` : v.thumb)) : '';
+  const thumbRel = v.thumb ? (v.thumb.startsWith('http') ? v.thumb : (fileBase ? `${fileBase}${v.thumb}` : v.thumb)) : '';
+  img.src = thumbRel && state.token && thumbRel.startsWith(fileBase)
+    ? `${thumbRel}${thumbRel.includes('?') ? '&' : '?'}token=${encodeURIComponent(state.token)}`
+    : thumbRel;
     img.onerror = () => {
       console.warn('Thumbnail failed to load:', img.src);
     };
@@ -360,14 +363,16 @@ async function fetchVideos() {
       state.filtered = [];
       return;
     }
-    const res = await fetch(`${CONFIG.API_BASE_URL}/videos`);
+    const headers = {};
+    if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+    const res = await fetch(`${CONFIG.API_BASE_URL}/videos`, { headers });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const items = await res.json();
       state.videos = (Array.isArray(items) ? items : []).map(v => ({
       id: v.id || v._id || crypto.randomUUID(),
       title: v.title || 'Untitled',
       description: v.description || '',
-      url: v.url || (CONFIG.FILE_BASE_URL && v.path ? `${CONFIG.FILE_BASE_URL}${v.path}` : ''),
+      url: v.url || (CONFIG.FILE_BASE_URL && v.path ? `${CONFIG.FILE_BASE_URL}${v.path}${state.token ? `?token=${encodeURIComponent(state.token)}` : ''}` : ''),
       path: v.path || '',
         thumb: v.thumb || '',
       duration: v.duration || '',

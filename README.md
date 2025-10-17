@@ -7,7 +7,7 @@ Containerized microservices + static front-end:
 - Catalog Service (Node/Express + mysql2) for listing/registering videos
 - Static front-end (Nginx) serving `video-streaming-web/`
 
-The front-end is backend-only: Upload calls File System → Catalog; Streaming lists from Catalog. Login is a simple credential check via the Auth service `/validate` endpoint (no tokens).
+The front-end is backend-only: Upload calls File System → Catalog; Streaming lists from Catalog. Authentication uses a minimal JWT: the web app logs in to obtain a token and sends it to protected APIs. File reads are protected and the app appends `?token=...` to media URLs so the browser can stream.
 
 ---
 
@@ -48,13 +48,13 @@ docker compose up -d --build
 
 Services:
 - mysql: 3306 (DB `data_db`, table `videos`) – schema from `mysql/init/init.sql`
-- auth-service: 4000 – `/validate`
+- auth-service: 4000 – `/login` (JWT), `/signup` (in-memory), `/verify` (diagnostic), `/validate` (legacy)
 - Auth defaults (in-memory):
 	- Username: `admin`
 	- Password: `admin123`
 	- Override with `DEFAULT_ADMIN_USER` and `DEFAULT_ADMIN_PASS`.
-- file-system-service: 5000 – `/upload`, `/files/*` static, `DELETE /files/:name`
-- catalog-service: 5001 – `GET/POST /videos`, `DELETE /videos/:id` (stores optional `thumb` path)
+- file-system-service: 5000 – `/upload` (JWT), `/files/*` reads require JWT (Authorization header or `?token=`), `DELETE /files/:name` (JWT)
+- catalog-service: 5001 – `GET /videos` (JWT), `POST /videos` (JWT), `DELETE /videos/:id` (JWT). Stores optional `thumb` path.
 - video-web: 8080 – serves `video-streaming-web/`
 
 Check status:
@@ -82,38 +82,42 @@ Optional:
 - The UI captures a single deterministic thumbnail frame client-side (browser-decoding permitting), uploads it to the File service, and includes `thumb` when saving to the Catalog.
 
 Streaming page:
-- Lists items from Catalog (no sample or local items)
+- Requires login (the app will prompt you)
+- Lists items from Catalog (no sample or local items) and sends Authorization to Catalog
+- Video and thumbnail URLs include `?token=<JWT>` for protected reads
 - Delete removes from Catalog (and attempts to delete the stored file)
- - Shows a static thumbnail per video; hovering/focusing a card plays a muted looping preview inside the card
+- Shows a static thumbnail per video; hovering/focusing a card plays a muted looping preview inside the card
 
 Quick API checks (curl):
 
 ```bash
-# Auth (simple validate)
-curl -s -X POST http://localhost:4000/validate \
-	-H 'content-type: application/json' \
-	-d '{"username":"admin","password":"admin123"}'
+# Login (JWT)
+TOKEN=$(curl -s -X POST http://localhost:4000/login \
+  -H 'content-type: application/json' \
+  -d '{"username":"admin","password":"admin123"}' | jq -r .token)
 
 # File upload (Linux/Debian example)
 echo "hello" > /tmp/test.txt
-curl -s -F file=@/tmp/test.txt http://localhost:5000/upload
+curl -s -F file=@/tmp/test.txt -H "Authorization: Bearer $TOKEN" http://localhost:5000/upload
 
-# Catalog list + create
-curl -s http://localhost:5001/videos
+# Catalog list + create (JWT)
+curl -s http://localhost:5001/videos -H "Authorization: Bearer $TOKEN"
 curl -s -X POST http://localhost:5001/videos \
-	-H 'content-type: application/json' \
-	-d '{"title":"Test Text","path":"/files/<name>"}'
+  -H 'content-type: application/json' -H "Authorization: Bearer $TOKEN" \
+  -d '{"title":"Test Text","path":"/files/<name>"}'
 ```
 
 Windows PowerShell equivalents:
 
 ```powershell
-# List
-irm http://localhost:5001/videos | ConvertTo-Json -Depth 3
+# Login (JWT)
+$login = Invoke-RestMethod -Uri http://localhost:4000/login -Method Post -ContentType 'application/json' -Body (@{ username = 'admin'; password = 'admin123' } | ConvertTo-Json)
+$TOKEN = $login.token
 # Upload a file (adjust path) and then create a catalog entry
-$res = Invoke-RestMethod -Uri http://localhost:5000/upload -Method Post -Form @{ file = Get-Item '.\sample.mp4' }
-Invoke-RestMethod -Uri http://localhost:5001/videos -Method Post -ContentType 'application/json' -Body (@{ title = 'Sample'; path = $res.path } | ConvertTo-Json)
-irm http://localhost:5001/videos | ConvertTo-Json -Depth 3
+$res = Invoke-RestMethod -Uri http://localhost:5000/upload -Method Post -Headers @{ Authorization = "Bearer $TOKEN" } -Form @{ file = Get-Item '.\sample.mp4' }
+Invoke-RestMethod -Uri http://localhost:5001/videos -Method Post -Headers @{ Authorization = "Bearer $TOKEN" } -ContentType 'application/json' -Body (@{ title = 'Sample'; path = $res.path } | ConvertTo-Json)
+# List (JWT)
+Invoke-RestMethod -Uri http://localhost:5001/videos -Headers @{ Authorization = "Bearer $TOKEN" } | ConvertTo-Json -Depth 3
 ```
 
 ## 5) Stop/cleanup
@@ -132,9 +136,9 @@ Based on the requirements and flow chart (Auth → File System → Catalog → S
 
 Implemented
 - Front-end: Streaming page (search, player, settings), Upload page with “Uploading…” indicator and detailed error toasts
-- Authentication Service: `/validate` (CORS). In-memory credentials (admin/admin123 by default)
-- File System Service: `/upload`, static `/files/*`, `DELETE /files/:name` (CORS). Filenames sanitized and storage directory ensured.
-- Catalog Service: `GET /videos`, `POST /videos`, `DELETE /videos/:id` (CORS)
+- Authentication Service: `/login` (JWT), `/signup` (ephemeral), `/verify`, `/validate` (legacy). In-memory credentials (admin/admin123 by default)
+- File System Service: `/upload` (JWT), static `/files/*` reads (JWT), `DELETE /files/:name` (JWT). Filenames sanitized and storage directory ensured.
+- Catalog Service: `GET /videos` (JWT), `POST /videos` (JWT), `DELETE /videos/:id` (JWT) (CORS)
 - MySQL: schema `videos(id, title, path, uploaded_at)` (UI/runtime may add a `thumb` column at startup if missing)
 - Docker Compose stack and Nginx static hosting
 

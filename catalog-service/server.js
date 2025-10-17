@@ -62,7 +62,7 @@ async function ensureSchema() {
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 ensureSchema().catch(() => {});
 
-app.get('/videos', async (req, res) => {
+app.get('/videos', verifyJWT, async (req, res) => {
   try {
     const p = await getPool();
   const [rows] = await p.query('SELECT id, title, path, thumb, uploaded_at FROM videos ORDER BY uploaded_at DESC');
