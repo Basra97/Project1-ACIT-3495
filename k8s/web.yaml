@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: web
-        image: YOUR_ACR_NAME.azurecr.io/web:latest
+        image: videostreamingacr.azurecr.io/web:latest
         ports:
         - containerPort: 80
         resources:

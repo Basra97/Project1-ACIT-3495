@@ -5,6 +5,8 @@ Follow these commands in order. Copy and paste each one.
 ## Step 1: Login to Azure
 ```bash
 az login
+
+az login --use-device-code
 ```
 
 ## Step 2: Create Resource Group
@@ -33,29 +35,28 @@ az acr login --name videostreamingacr
 ## Step 5: Build Docker Images
 ```bash
 # Build each service
-docker build -t videostreamingacr1.azurecr.io/auth-service:latest ./authentication-service
-docker build -t videostreamingacr1.azurecr.io/catalog-service:latest ./catalog-service
-docker build -t videostreamingacr1.azurecr.io/file-service:latest ./file-system-service
-docker build -t videostreamingacr1.azurecr.io/web:latest ./video-streaming-web
+docker build -t videostreamingacr.azurecr.io/auth-service:latest ./authentication-service
+docker build -t videostreamingacr.azurecr.io/catalog-service:latest ./catalog-service
+docker build -t videostreamingacr.azurecr.io/file-service:latest ./file-system-service
+docker build -t videostreamingacr.azurecr.io/web:latest ./video-streaming-web
 ```
 
 ## Step 6: Push Images to Azure
 ```bash
-docker push videostreamingacr1.azurecr.io/auth-service:latest
-docker push videostreamingacr1.azurecr.io/catalog-service:latest
-docker push videostreamingacr1.azurecr.io/file-service:latest
-docker push videostreamingacr1.azurecr.io/web:latest
+docker push videostreamingacr.azurecr.io/auth-service:latest
+docker push videostreamingacr.azurecr.io/catalog-service:latest
+docker push videostreamingacr.azurecr.io/file-service:latest
+docker push videostreamingacr.azurecr.io/web:latest
 ```
 
 ## Step 7: Update YAML Files
-Open each file in `k8s/` folder and replace:
-- `YOUR_ACR_NAME` with `videostreamingacr1`
+ALREADY DONE - YAML files updated with `videostreamingacr`
 
-Files to edit:
+(If you used a different ACR name, edit these files manually:
 - `k8s/auth-service.yaml`
 - `k8s/catalog-service.yaml`
 - `k8s/file-service.yaml`
-- `k8s/web.yaml`
+- `k8s/web.yaml`)
 
 ## Step 8: Create Kubernetes Cluster
 ```bash
@@ -65,7 +66,7 @@ az aks create \
   --node-count 2 \
   --node-vm-size Standard_B2s \
   --generate-ssh-keys \
-  --attach-acr videostreamingacr1
+  --attach-acr videostreamingacr
 ```
 ⏱️ This takes 5-10 minutes
 

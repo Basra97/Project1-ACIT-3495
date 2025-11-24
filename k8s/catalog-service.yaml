@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: catalog-service
-        image: YOUR_ACR_NAME.azurecr.io/catalog-service:latest
+        image: videostreamingacr.azurecr.io/catalog-service:latest
         env:
         - name: MYSQL_HOST
           valueFrom:

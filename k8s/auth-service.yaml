@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: auth-service
-        image: YOUR_ACR_NAME.azurecr.io/auth-service:latest
+        image: videostreamingacr.azurecr.io/auth-service:latest
         env:
         - name: PORT
           value: "4000"

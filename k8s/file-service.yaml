@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: file-service
-        image: YOUR_ACR_NAME.azurecr.io/file-service:latest
+        image: videostreamingacr.azurecr.io/file-service:latest
         env:
         - name: JWT_SECRET
           valueFrom:
