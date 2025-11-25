@@ -99,30 +99,61 @@ kubectl get svc -n video-streaming
 kubectl get hpa -n video-streaming
 ```
 
-## Step 13: Test Scaling
+## Step 13: Test Horizontal Pod Autoscaling
 
-### Generate Load
-Open browser and keep refreshing the auth service URL, or run:
+### A. Check Initial State (Take Screenshot #1)
 ```bash
-# Get the IP first
+# Show initial pods (should be 2 replicas per service)
+kubectl get pods -n video-streaming
+
+# Show HPA current status
+kubectl get hpa -n video-streaming
+```
+
+### B. Fix MySQL Table (If Not Already Done)
+```bash
+# Create the videos table in MySQL
+kubectl exec -n video-streaming $(kubectl get pods -n video-streaming -o name | grep mysql) -- mysql -uroot -pexample data_db -e "CREATE TABLE IF NOT EXISTS videos (id INT AUTO_INCREMENT PRIMARY KEY, title VARCHAR(255) NOT NULL, path VARCHAR(1024) NOT NULL, thumb VARCHAR(1024) NULL, uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
+```
+
+### C. Test Application Works
+```bash
+# Get service IPs
+kubectl get svc -n video-streaming
+
+# Test auth service (replace with your actual IP)
+curl -X POST http://EXTERNAL-IP:4000/login -H "Content-Type: application/json" -d '{"username":"admin","password":"admin123"}'
+
+# Open web interface in browser: http://WEB-EXTERNAL-IP
+# Login with: admin / admin123
+```
+
+### D. Generate Load (Terminal 1)
+```bash
+# Get auth service IP first
 kubectl get svc auth-service -n video-streaming
 
-# Then visit: http://EXTERNAL-IP:4000
-# Refresh many times (or use curl in a loop)
+# Generate continuous load (replace EXTERNAL-IP with actual IP)
+while true; do curl -X POST http://EXTERNAL-IP:4000/login -H "Content-Type: application/json" -d '{"username":"admin","password":"admin123"}' > /dev/null 2>&1; done
 ```
 
-### Simple curl loop:
+### E. Watch HPA (Terminal 2 - Take Screenshot #2)
 ```bash
-while true; do curl http://EXTERNAL-IP:4000; done
-```
-
-### Watch Scaling
-```bash
-# In another terminal, watch the scaling happen
+# Watch CPU utilization increase and replicas scale up
 kubectl get hpa -n video-streaming --watch
+```
 
-# See pods increase
+### F. Watch Pods (Terminal 3 - Take Screenshot #3)
+```bash
+# See new pods being created (auth-service will scale from 2 to 3-10)
 kubectl get pods -n video-streaming --watch
+```
+
+### G. Stop Load and Watch Scale Down
+```bash
+# Press Ctrl+C in Terminal 1 to stop the load
+# Wait 5 minutes and watch HPA scale back down to 2 replicas
+# Take Screenshot #4 showing scale-down
 ```
 
 ## Cleanup When Done
