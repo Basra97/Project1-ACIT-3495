@@ -91,9 +91,9 @@ file-service-hpa      Deployment/file-service      cpu: 1%/50%   2         10   
 **Result:** All services running at minimum 2 replicas with ~1% CPU usage.
 
 ### Load Generation Method
-Generated continuous load using bash script with 50 concurrent curl workers:
+Generated continuous load using bash script with 30 concurrent curl workers:
 ```bash
-for i in {1..50}; do
+for i in {1..30}; do
   (while true; do
     curl -X POST http://172.184.107.226:4000/login \
       -H "Content-Type: application/json" \
@@ -166,7 +166,7 @@ kubectl top pods -n video-streaming
 
 ### Test Scenario
 1. **Baseline:** Verify initial state (2 pods per service)
-2. **Load Generation:** Run 50 concurrent curl workers hitting `/login` endpoint
+2. **Load Generation:** Run 30 concurrent curl workers hitting `/login` endpoint
 3. **Monitor Scale-Up:** Watch HPA increase replicas as CPU exceeds 30%
 4. **Stop Load:** Kill all curl processes with `killall curl`
 5. **Monitor Scale-Down:** Watch HPA reduce replicas after 30 seconds
@@ -202,8 +202,8 @@ kubectl get pods -n video-streaming
 # View resource usage
 kubectl top pods -n video-streaming
 
-# Load generation (50 workers)
-for i in {1..50}; do (while true; do curl -X POST http://IP:4000/login -s -o /dev/null; done) & done
+# Load generation (30 workers)
+for i in {1..30}; do (while true; do curl -X POST http://IP:4000/login -s -o /dev/null; done) & done
 
 # Stop load
 killall curl
@@ -305,7 +305,7 @@ behavior:
 **Problem:** Needed simple way to generate continuous load for testing  
 **Solution:** Used bash loop with multiple background curl processes:
 ```bash
-for i in {1..50}; do (while true; do curl -s -o /dev/null [URL]; done) & done
+for i in {1..30}; do (while true; do curl -s -o /dev/null [URL]; done) & done
 ```
 **Learning:** Shell scripting can effectively simulate concurrent users for load testing
 
