@@ -291,17 +291,8 @@ killall curl
 **Solution:** Wait 5-10 minutes for Azure to provision public load balancers  
 **Learning:** Cloud infrastructure provisioning takes time
 
-### Challenge 4: Scale-Down Too Slow for Demos
-**Problem:** Default 5-minute stabilization window made demos lengthy  
-**Solution:** Customized HPA behavior with 30-second stabilization window:
-```yaml
-behavior:
-  scaleDown:
-    stabilizationWindowSeconds: 30
-```
-**Learning:** HPA behavior can be tuned for different use cases (production vs demos)
 
-### Challenge 5: Load Generation Without Node.js
+### Challenge 4: Load Generation Without Node.js
 **Problem:** Needed simple way to generate continuous load for testing  
 **Solution:** Used bash loop with multiple background curl processes:
 ```bash
