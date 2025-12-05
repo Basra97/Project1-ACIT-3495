@@ -50,20 +50,6 @@ maxReplicas: 10
 targetCPUUtilizationPercentage: 30%
 ```
 
-### Scaling Behavior (Optimized for Demo)
-```yaml
-behavior:
-  scaleDown:
-    stabilizationWindowSeconds: 30  # Wait 30s before scaling down
-    policies:
-    - type: Percent
-      value: 50           # Remove up to 50% of pods
-      periodSeconds: 15   # Every 15 seconds
-    - type: Pods
-      value: 2            # Or remove 2 pods
-      periodSeconds: 15
-    selectPolicy: Max     # Use the more aggressive policy
-```
 
 ### How It Works
 - **Scale Up:** Immediate when CPU > 30%
