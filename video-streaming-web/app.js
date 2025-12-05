@@ -1,0 +1,511 @@
+// Simple frontend for Video Streaming (Web)
+// - Backend-only: lists videos from Catalog; no mock data or local fallback
+// - Configure BASE_URLS in Settings
+
+const CONFIG = {
+  AUTH_BASE_URL: localStorage.getItem('AUTH_BASE_URL') || '', // e.g., http://localhost:4000
+  API_BASE_URL: localStorage.getItem('API_BASE_URL') || '',   // e.g., http://localhost:5001
+  FILE_BASE_URL: localStorage.getItem('FILE_BASE_URL') || '', // e.g., http://localhost:5000
+};
+
+// App state
+const state = {
+  user: JSON.parse(sessionStorage.getItem('user') || 'null'),
+  token: sessionStorage.getItem('token') || '',
+  videos: [],
+  filtered: [],
+};
+
+// Cache for generated runtime thumbnails so they don't change on re-render
+const THUMB_CACHE = new Map(); // key: video.id or url -> dataUrl
+
+// DOM
+const els = {
+  loginBtn: document.getElementById('login-btn'),
+  logoutBtn: document.getElementById('logout-btn'),
+  userInfo: document.getElementById('user-info'),
+  usernameLabel: document.getElementById('username-label'),
+  loginModal: document.getElementById('login-modal'),
+  loginForm: document.getElementById('login-form'),
+  cancelLogin: document.getElementById('cancel-login'),
+  list: document.getElementById('video-list'),
+  search: document.getElementById('search'),
+  playerModal: document.getElementById('player-modal'),
+  closePlayer: document.getElementById('close-player'),
+  player: document.getElementById('player'),
+  playerSource: document.getElementById('player-source'),
+  playerTitle: document.getElementById('player-title'),
+  // settings
+  settingsBtn: document.getElementById('settings-btn'),
+  settingsModal: document.getElementById('settings-modal'),
+  settingsForm: document.getElementById('settings-form'),
+  settingsCancel: document.getElementById('settings-cancel'),
+  cfgAuth: document.getElementById('cfg-auth'),
+  cfgApi: document.getElementById('cfg-api'),
+  cfgFile: document.getElementById('cfg-file'),
+  // toasts
+  toastContainer: document.getElementById('toast-container'),
+  uploadLink: document.getElementById('upload-link'),
+};
+
+function showToast({ title = '', body = '', kind = 'info', timeout = 3500 } = {}) {
+  if (!els.toastContainer) return;
+  const t = document.createElement('div');
+  t.className = `toast ${kind}`;
+  const h = document.createElement('div'); h.className = 'title'; h.textContent = title;
+  const p = document.createElement('div'); p.className = 'body'; p.textContent = body;
+  t.appendChild(h); if (body) t.appendChild(p);
+  els.toastContainer.appendChild(t);
+  setTimeout(() => t.remove(), timeout);
+}
+
+// Show a cross-page toast if set by another page
+try {
+  const stored = sessionStorage.getItem('TOAST');
+  if (stored) {
+    const data = JSON.parse(stored);
+    showToast(data);
+    sessionStorage.removeItem('TOAST');
+  }
+} catch {}
+
+function setAuthUI() {
+  if (state.user) {
+    els.loginBtn.classList.add('hidden');
+    els.userInfo.classList.remove('hidden');
+    els.usernameLabel.textContent = state.user.username;
+  } else {
+    els.loginBtn.classList.remove('hidden');
+    els.userInfo.classList.add('hidden');
+    els.usernameLabel.textContent = '';
+  }
+}
+
+function openLogin() { els.loginModal.classList.remove('hidden'); }
+function closeLogin() { els.loginModal.classList.add('hidden'); }
+
+async function loginReal(username, password) {
+  // Prefer JWT login; fallback to /validate for legacy
+  let token = '';
+  try {
+    const res = await fetch(`${CONFIG.AUTH_BASE_URL}/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      token = data?.token || '';
+    } else if (res.status !== 404) {
+      const t = await res.text();
+      throw new Error(`Login failed (${res.status}) ${t || ''}`.trim());
+    }
+  } catch (e) {
+    // continue to /validate fallback
+  }
+  if (!token) {
+    const res = await fetch(`${CONFIG.AUTH_BASE_URL}/validate`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (!data?.valid) throw new Error('Invalid credentials');
+  }
+  const user = { username };
+  state.user = user;
+  state.token = token;
+  sessionStorage.setItem('user', JSON.stringify(user));
+  if (token) sessionStorage.setItem('token', token); else sessionStorage.removeItem('token');
+  try { localStorage.setItem('HAS_LOGGED_IN', 'true'); } catch {}
+  setAuthUI();
+  showToast({ title: 'Logged in', body: `Hello, ${user.username}`, kind: 'success' });
+}
+
+function logout() {
+  state.user = null;
+  state.token = '';
+  sessionStorage.removeItem('user');
+  sessionStorage.removeItem('token');
+  setAuthUI();
+  showToast({ title: 'Logged out', kind: 'info' });
+}
+
+function renderList(items) {
+  els.list.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  items.forEach(v => {
+    const a = document.createElement('a');
+    a.href = '#';
+    a.className = 'card-link';
+    a.addEventListener('click', (e) => { e.preventDefault(); openPlayer(v); });
+
+    const card = document.createElement('article');
+    card.className = 'card video-card';
+    // Delete button for API items
+    const del = document.createElement('button');
+    del.className = 'delete-btn';
+    del.type = 'button';
+    del.textContent = 'Delete';
+    del.title = 'Remove from Catalog and Storage';
+    const needsAuth = Boolean(CONFIG.API_BASE_URL);
+    if (needsAuth && !state.user) {
+      del.disabled = true;
+      del.title = 'Login required to delete';
+    }
+    del.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const ok = confirm('Delete this video?');
+      if (!ok) return;
+      deleteApiVideo(v);
+    });
+    card.appendChild(del);
+  // Media container to constrain thumbnail/preview to 16:9 inside the card
+  const media = document.createElement('div');
+  media.className = 'media';
+  const img = document.createElement('img');
+  img.className = 'thumb';
+  img.alt = v.title;
+  img.loading = 'lazy';
+  const fileBase = CONFIG.FILE_BASE_URL || (location.hostname ? `http://${location.hostname}:5000` : '');
+  const thumbRel = v.thumb ? (v.thumb.startsWith('http') ? v.thumb : (fileBase ? `${fileBase}${v.thumb}` : v.thumb)) : '';
+  img.src = thumbRel && state.token && thumbRel.startsWith(fileBase)
+    ? `${thumbRel}${thumbRel.includes('?') ? '&' : '?'}token=${encodeURIComponent(state.token)}`
+    : thumbRel;
+    img.onerror = () => {
+      console.warn('Thumbnail failed to load:', img.src);
+    };
+    media.appendChild(img);
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const h = document.createElement('h3');
+    h.className = 'title';
+    h.textContent = v.title;
+    const p = document.createElement('p');
+    p.className = 'subtitle';
+    p.textContent = v.description || '';
+
+    meta.appendChild(h); meta.appendChild(p);
+    card.appendChild(media); card.appendChild(meta);
+    // Hover/focus preview: play a muted looping video when hovering the card
+    let hoverTimer;
+    const showPreview = () => {
+      try {
+        if (!v.url) return;
+        if (media.querySelector('video.preview-video')) return; // already showing
+        const pv = document.createElement('video');
+        pv.className = 'preview-video';
+        pv.muted = true;
+        pv.playsInline = true;
+        pv.loop = true;
+        pv.preload = 'metadata';
+        pv.src = v.url;
+        // place preview video inside media container (over the thumbnail)
+        media.appendChild(pv);
+        // hide the image while previewing
+        img.style.display = 'none';
+        // try to skip initial black frames
+        pv.addEventListener('loadedmetadata', () => {
+          try {
+            const t = Math.min(1, Math.max(0, (pv.duration || 0) * 0.05));
+            pv.currentTime = t;
+          } catch {}
+        }, { once: true });
+        // attempt autoplay
+        const playAttempt = pv.play();
+        if (playAttempt && typeof playAttempt.then === 'function') {
+          playAttempt.catch(() => {/* ignore autoplay block */});
+        }
+      } catch (e) {
+        console.warn('Preview failed:', e?.message || e);
+      }
+    };
+    const hidePreview = () => {
+      clearTimeout(hoverTimer);
+      const pv = media.querySelector('video.preview-video');
+      if (pv) {
+        try { pv.pause(); } catch {}
+        pv.remove();
+      }
+      img.style.display = '';
+    };
+    card.addEventListener('mouseenter', () => {
+      clearTimeout(hoverTimer);
+      hoverTimer = setTimeout(showPreview, 200);
+    });
+    card.addEventListener('mouseleave', hidePreview);
+    // keyboard accessibility: show preview on focus, hide on blur
+    a.addEventListener('focus', () => {
+      clearTimeout(hoverTimer);
+      hoverTimer = setTimeout(showPreview, 300);
+    });
+    a.addEventListener('blur', hidePreview);
+    a.appendChild(card);
+    // Fallback: if no thumb provided by API, attempt client-side capture ONCE and cache it
+    if (!v.thumb && v.url) {
+      const key = v.id || v.url;
+      const cached = THUMB_CACHE.get(key);
+      if (cached) {
+        img.src = cached;
+      } else {
+        try {
+          captureThumbFromUrl(v.url, 320, 180).then((dataUrl) => {
+            if (dataUrl) {
+              THUMB_CACHE.set(key, dataUrl);
+              img.src = dataUrl;
+            }
+          });
+        } catch (e) {
+          console.warn('Runtime thumb capture failed:', e?.message || e);
+        }
+      }
+    }
+    frag.appendChild(a);
+  });
+  els.list.appendChild(frag);
+}
+
+// No local delete: only API-backed items are shown
+
+function openPlayer(v) {
+  els.player.pause();
+  els.playerSource.src = v.url;
+  els.playerTitle.textContent = v.title;
+  els.player.load();
+  els.playerModal.classList.remove('hidden');
+}
+function closePlayer() {
+  els.player.pause();
+  els.playerModal.classList.add('hidden');
+}
+
+async function deleteApiVideo(video) {
+  try {
+    if (!CONFIG.API_BASE_URL) {
+      showToast({ title: 'API not configured', body: 'Set API Base URL in Settings', kind: 'error' });
+      return;
+    }
+    if (!state.user) {
+      openLogin();
+      showToast({ title: 'Login required', body: 'Please login to delete videos.', kind: 'error' });
+      return;
+    }
+    // Try to delete the stored file first (best effort)
+    let fileIssue = '';
+    try {
+      if (CONFIG.FILE_BASE_URL && (video.path || video.url)) {
+        let fileEndpoint = '';
+        if (video.path) {
+          fileEndpoint = `${CONFIG.FILE_BASE_URL}${video.path}`;
+        } else if (video.url && video.url.startsWith(CONFIG.FILE_BASE_URL)) {
+          fileEndpoint = video.url;
+        }
+        if (fileEndpoint) {
+          const fr = await fetch(fileEndpoint, { method: 'DELETE', headers: state.token ? { Authorization: `Bearer ${state.token}` } : {} });
+          if (![200, 204, 404].includes(fr.status)) {
+            const t = await safeReadText(fr);
+            fileIssue = `File delete: ${fr.status} ${fr.statusText}${t ? ` - ${t}` : ''}`;
+          }
+        }
+      }
+    } catch (e) {
+      fileIssue = e?.message || 'File delete error';
+    }
+
+    if (!state.token) {
+      showToast({ title: 'Auth required', body: 'Please login again to get a token.', kind: 'error' });
+      return;
+    }
+    const res = await fetch(`${CONFIG.API_BASE_URL}/videos/${encodeURIComponent(video.id)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${state.token}` } });
+    if (res.status !== 204) {
+      const text = await safeReadText(res);
+      throw new Error(`Delete failed (${res.status} ${res.statusText})${text ? `: ${text}` : ''}`);
+    }
+    state.videos = state.videos.filter(v => String(v.id) !== String(video.id));
+    const q = (els.search.value || '').toLowerCase();
+    state.filtered = state.videos.filter(v =>
+      v.title.toLowerCase().includes(q) || (v.description || '').toLowerCase().includes(q)
+    );
+    renderList(state.filtered);
+    showToast({ title: 'Deleted', body: 'Removed from Catalog and storage.', kind: 'success' });
+    if (fileIssue) {
+      showToast({ title: 'Cleanup note', body: fileIssue, kind: 'info' });
+    }
+  } catch (err) {
+    console.error(err);
+    showToast({ title: 'Delete error', body: err?.message || 'Unknown error', kind: 'error' });
+  }
+}
+
+async function safeReadText(res) {
+  try { return (await res.text()).slice(0, 300); } catch { return ''; }
+}
+
+// Settings modal logic
+function openSettings() {
+  els.cfgAuth.value = CONFIG.AUTH_BASE_URL;
+  els.cfgApi.value = CONFIG.API_BASE_URL;
+  els.cfgFile.value = CONFIG.FILE_BASE_URL;
+  els.settingsModal.classList.remove('hidden');
+}
+function closeSettings() { els.settingsModal.classList.add('hidden'); }
+
+async function fetchVideos() {
+  if (!CONFIG.API_BASE_URL) {
+    state.videos = [];
+    state.filtered = [];
+    return;
+  }
+  try {
+    if (!state.user) {
+      showToast({ title: 'Login required', body: 'Login to view videos from Catalog.', kind: 'info' });
+      state.videos = [];
+      state.filtered = [];
+      return;
+    }
+    const headers = {};
+    if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+    const res = await fetch(`${CONFIG.API_BASE_URL}/videos`, { headers });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const items = await res.json();
+      state.videos = (Array.isArray(items) ? items : []).map(v => ({
+      id: v.id || v._id || crypto.randomUUID(),
+      title: v.title || 'Untitled',
+      description: v.description || '',
+      url: v.url || (CONFIG.FILE_BASE_URL && v.path ? `${CONFIG.FILE_BASE_URL}${v.path}${state.token ? `?token=${encodeURIComponent(state.token)}` : ''}` : ''),
+      path: v.path || '',
+        thumb: v.thumb || '',
+      duration: v.duration || '',
+    }));
+    state.filtered = state.videos;
+  } catch (err) {
+    console.warn('Fetch /videos failed.', err?.message || err);
+    showToast({ title: 'Load error', body: 'Could not load from API.', kind: 'error' });
+    state.videos = [];
+    state.filtered = [];
+  }
+}
+
+// Events
+els.loginBtn.addEventListener('click', openLogin);
+els.cancelLogin.addEventListener('click', closeLogin);
+els.logoutBtn.addEventListener('click', logout);
+els.closePlayer.addEventListener('click', closePlayer);
+// settings events
+els.settingsBtn.addEventListener('click', openSettings);
+els.settingsCancel?.addEventListener('click', closeSettings);
+els.settingsForm?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  localStorage.setItem('AUTH_BASE_URL', els.cfgAuth.value.trim());
+  localStorage.setItem('API_BASE_URL', els.cfgApi.value.trim());
+  localStorage.setItem('FILE_BASE_URL', els.cfgFile.value.trim());
+  // refresh config in memory
+  CONFIG.AUTH_BASE_URL = localStorage.getItem('AUTH_BASE_URL') || '';
+  CONFIG.API_BASE_URL = localStorage.getItem('API_BASE_URL') || '';
+  CONFIG.FILE_BASE_URL = localStorage.getItem('FILE_BASE_URL') || '';
+  closeSettings();
+  fetchVideos().then(() => renderList(state.filtered));
+  showToast({ title: 'Settings saved', kind: 'success' });
+});
+// Gate Upload link by login: if not logged in, open login modal, then redirect after successful login
+if (els.uploadLink) {
+  els.uploadLink.addEventListener('click', (e) => {
+    if (!state.user) {
+      e.preventDefault();
+      openLogin();
+      showToast({ title: 'Login required', body: 'Please login to upload.', kind: 'info' });
+      // After a successful login, navigate to upload page automatically
+      const handler = async (ev) => {
+        ev.preventDefault();
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+        if (!username || !password) return;
+        try {
+          if (!CONFIG.AUTH_BASE_URL) throw new Error('Auth service URL not set. Open Settings.');
+          await loginReal(username, password);
+          closeLogin();
+          els.loginForm.removeEventListener('submit', handler);
+          window.location.href = './upload.html';
+        } catch (err) {
+          showToast({ title: 'Login failed', body: err?.message || 'Error', kind: 'error' });
+        }
+      };
+      // Temporarily override the login submit to redirect
+      els.loginForm.addEventListener('submit', handler);
+    }
+  });
+}
+els.loginForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  if (!username || !password) return;
+  try {
+    if (!CONFIG.AUTH_BASE_URL) throw new Error('Auth service URL not set. Open Settings.');
+    await loginReal(username, password);
+    closeLogin();
+    await fetchVideos();
+    renderList(state.filtered);
+  } catch (err) {
+    showToast({ title: 'Login failed', body: err?.message || 'Error', kind: 'error' });
+  }
+});
+
+els.search.addEventListener('input', () => {
+  const q = els.search.value.toLowerCase();
+  state.filtered = state.videos.filter(v =>
+    v.title.toLowerCase().includes(q) || (v.description || '').toLowerCase().includes(q)
+  );
+  renderList(state.filtered);
+});
+
+// Initial render
+setAuthUI();
+// If API is configured and user isn't logged in, force login first and show placeholder instead of the list
+if (CONFIG.API_BASE_URL && !state.user) {
+  openLogin();
+  els.list.innerHTML = '<div class="card" style="padding:16px; text-align:center">Login required to view the catalog.</div>';
+} else {
+  fetchVideos().then(() => renderList(state.filtered));
+}
+
+// Capture a deterministic frame from a video URL and return a data URL (PNG)
+async function captureThumbFromUrl(videoUrl, width = 320, height = 180) {
+  return new Promise((resolve) => {
+    try {
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.preload = 'metadata';
+      video.muted = true;
+      video.playsInline = true;
+      video.src = videoUrl;
+      video.addEventListener('loadedmetadata', () => {
+        const canvas = document.createElement('canvas');
+        const vw = video.videoWidth || width;
+        const vh = video.videoHeight || height;
+        const ratio = Math.min(width / vw, height / vh) || 1;
+        canvas.width = Math.max(1, Math.floor(vw * ratio));
+        canvas.height = Math.max(1, Math.floor(vh * ratio));
+        const ctx = canvas.getContext('2d');
+        // Choose a deterministic point: 5% into the video or 0.1s, whichever is larger
+        let t = 0;
+        if (!isNaN(video.duration) && video.duration > 0) {
+          t = Math.max(0.1, video.duration * 0.05);
+        }
+        const draw = () => {
+          try {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/png', 0.9));
+          } catch {
+            resolve('');
+          }
+        };
+        video.addEventListener('seeked', draw, { once: true });
+        try { video.currentTime = t; } catch { draw(); }
+      }, { once: true });
+      video.addEventListener('error', () => resolve(''), { once: true });
+    } catch {
+      resolve('');
+    }
+  });
+}

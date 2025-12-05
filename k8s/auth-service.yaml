@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: video-streaming
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      containers:
+      - name: auth-service
+        image: videostreamingacr.azurecr.io/auth-service:latest
+        env:
+        - name: PORT
+          value: "4000"
+        - name: JWT_SECRET
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: JWT_SECRET
+        - name: JWT_ISSUER
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: JWT_ISSUER
+        - name: DEFAULT_ADMIN_USER
+          value: "admin"
+        - name: DEFAULT_ADMIN_PASS
+          value: "admin123"
+        ports:
+        - containerPort: 4000
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: video-streaming
+spec:
+  type: LoadBalancer
+  selector:
+    app: auth-service
+  ports:
+  - port: 4000
+    targetPort: 4000
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: auth-service-hpa
+  namespace: video-streaming
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: auth-service
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50

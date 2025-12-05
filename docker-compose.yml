@@ -1,0 +1,60 @@
+version: '3.8'
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: example
+      MYSQL_DATABASE: data_db
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - '3306:3306'
+
+  auth-service:
+    build: ./authentication-service
+    ports:
+      - '4000:4000'
+    environment:
+      PORT: 4000
+      DEFAULT_ADMIN_USER: admin
+      DEFAULT_ADMIN_PASS: admin123
+      JWT_SECRET: dev-secret-change-me
+      JWT_ISSUER: auth-service
+
+  file-system-service:
+    build: ./file-system-service
+    ports:
+      - '5000:5000'
+    volumes:
+      - ./storage:/data/files
+    depends_on:
+      - mysql
+    environment:
+      JWT_SECRET: dev-secret-change-me
+      JWT_ISSUER: auth-service
+
+  video-web:
+    image: nginx:alpine
+    ports:
+      - '8080:80'
+    volumes:
+      - ./video-streaming-web:/usr/share/nginx/html:ro
+
+  catalog-service:
+    build: ./catalog-service
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_USER: root
+      MYSQL_PASSWORD: example
+      MYSQL_DB: data_db
+      JWT_SECRET: dev-secret-change-me
+      JWT_ISSUER: auth-service
+    ports:
+      - '5001:5001'
+    depends_on:
+      - mysql
+
+volumes:
+  mysql-data:
+

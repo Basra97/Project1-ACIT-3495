@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: video-streaming
+data:
+  JWT_SECRET: "dev-secret-change-me"
+  JWT_ISSUER: "auth-service"
+  MYSQL_HOST: "mysql"
+  MYSQL_DATABASE: "data_db"
+  MYSQL_USER: "root"
+  MYSQL_PASSWORD: "example"
